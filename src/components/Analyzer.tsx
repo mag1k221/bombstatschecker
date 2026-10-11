@@ -156,17 +156,17 @@ export function Analyzer({
     <div className="mx-auto w-full max-w-[1120px] px-5 pb-24 sm:px-8">
       <header className="flex items-center justify-between py-5">
         <div className="flex items-center gap-2.5">
-          <div aria-hidden className="grid size-8 place-items-center rounded-[10px] bg-gradient-to-br from-accent to-[color-mix(in_oklab,var(--accent),#000_25%)] text-[15px] font-bold text-accent-fg shadow-card">
-            B
-          </div>
-          <span className="text-[15px] font-semibold tracking-tight">Boomsquad</span>
+          <Logo />
+          <span className="text-[17px] font-bold tracking-[-0.02em]">
+            BombStats<span className="text-accent">Checker</span>
+          </span>
         </div>
         <ThemeToggle />
       </header>
 
       <section className="mx-auto max-w-[760px] pt-10 pb-10 text-center sm:pt-16">
         <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 px-3 py-1 text-[12.5px] font-medium text-muted backdrop-blur">
-          <span className="size-1.5 rounded-full bg-accent" aria-hidden /> Albion Online battle stats
+          <span className="size-1.5 rounded-full bg-spark" aria-hidden /> Albion Online battle stats
         </p>
         <h1 className="text-balance text-[40px] font-semibold leading-[1.05] tracking-[-0.035em] sm:text-[60px]">
           Every kill. Every death.
@@ -324,6 +324,17 @@ export function Analyzer({
         </p>
       </footer>
     </div>
+  );
+}
+
+function Logo() {
+  return (
+    <span className="relative block size-9 shrink-0" aria-hidden>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/brand/mark-light.png" alt="" width={36} height={36} className="size-9 dark:hidden" />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/brand/mark-dark.png" alt="" width={36} height={36} className="hidden size-9 dark:block" />
+    </span>
   );
 }
 

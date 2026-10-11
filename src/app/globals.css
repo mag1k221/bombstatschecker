@@ -3,19 +3,21 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --bg: #f6f6f4;
-  --bg-glow: rgba(234, 88, 12, 0.10);
+  /* Brand: BombStatsChecker — sky blue bars, orange spark, deep navy. */
+  --bg: #f3f6fa;
+  --bg-glow: rgba(13, 179, 250, 0.14);
   --surface: #ffffff;
-  --surface-2: #f2f2ef;
-  --line: rgba(17, 17, 15, 0.08);
-  --line-strong: rgba(17, 17, 15, 0.16);
-  --fg: #141413;
-  --muted: #62625d;
-  --subtle: #8a8a84;
-  --accent: #c2410c;
-  --accent-hover: #a83a0b;
-  --accent-soft: rgba(194, 65, 12, 0.09);
+  --surface-2: #edf1f6;
+  --line: rgba(15, 22, 29, 0.08);
+  --line-strong: rgba(15, 22, 29, 0.16);
+  --fg: #0f161d;
+  --muted: #56616d;
+  --subtle: #84909c;
+  --accent: #0284c7;
+  --accent-hover: #0369a1;
+  --accent-soft: rgba(2, 132, 199, 0.09);
   --accent-fg: #ffffff;
+  --spark: #f2600f;
   --ok: #15803d;
   --ok-soft: rgba(21, 128, 61, 0.1);
   --warn: #a16207;
@@ -28,19 +30,20 @@
 }
 
 .dark {
-  --bg: #0b0b0c;
-  --bg-glow: rgba(251, 146, 60, 0.10);
-  --surface: #151517;
-  --surface-2: #1c1c1f;
+  --bg: #0b1016;
+  --bg-glow: rgba(13, 179, 250, 0.13);
+  --surface: #121a22;
+  --surface-2: #18222c;
   --line: rgba(255, 255, 255, 0.07);
   --line-strong: rgba(255, 255, 255, 0.14);
-  --fg: #f4f4f2;
-  --muted: #a3a39e;
-  --subtle: #7c7c78;
-  --accent: #fb8c4a;
-  --accent-hover: #fda06a;
-  --accent-soft: rgba(251, 140, 74, 0.12);
-  --accent-fg: #1a0d05;
+  --fg: #f2f5f8;
+  --muted: #9ba7b3;
+  --subtle: #6f7c89;
+  --accent: #22b8fa;
+  --accent-hover: #5ccbfb;
+  --accent-soft: rgba(34, 184, 250, 0.12);
+  --accent-fg: #04121c;
+  --spark: #fe6c1d;
   --ok: #4ade80;
   --ok-soft: rgba(74, 222, 128, 0.1);
   --warn: #facc15;
@@ -62,6 +65,7 @@
   --color-muted: var(--muted);
   --color-subtle: var(--subtle);
   --color-accent: var(--accent);
+  --color-spark: var(--spark);
   --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
   --color-accent-fg: var(--accent-fg);

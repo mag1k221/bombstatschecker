@@ -384,7 +384,7 @@ function MemberTable({ data }: { data: AnalyzeResponse }) {
     const a = document.createElement("a");
     const id = data.source.battles.map((b) => b.id).join("-").slice(0, 60);
     a.href = URL.createObjectURL(blob);
-    a.download = `boomsquad-${data.mode === "demo" ? "DEMO-" : ""}${id}.csv`;
+    a.download = `bombstats-${data.mode === "demo" ? "DEMO-" : ""}${id}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }

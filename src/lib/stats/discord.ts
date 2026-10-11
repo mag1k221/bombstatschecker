@@ -17,7 +17,7 @@ export function discordSummary(
   const s = data.summary;
   const battles = data.source.battles.map((b) => b.id).join(", ");
   const header: string[] = [
-    `**Boomsquad report**${data.mode === "demo" ? " (demo data)" : ""} — battle ${battles || "?"} · ${data.source.regionLabel}`,
+    `**BombStatsChecker report**${data.mode === "demo" ? " (demo data)" : ""} — battle ${battles || "?"} · ${data.source.regionLabel}`,
     `**K/D ${s.overallKdDisplay}** · ${s.totalKills} kills · ${s.totalDeaths} deaths · ${s.matched}/${s.submitted} members found`,
   ];
   if (opts.regearTotal != null && opts.regearTotal > 0) {

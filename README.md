@@ -1,4 +1,4 @@
-# Boomsquad — Albion Online battle K/D tracker
+# BombStatsChecker — Albion Online squad K/D, damage & regear tracker
 
 Paste an AlbionBB battle link and your squad roster → get kills, deaths and K/D per member and for the whole squad, **for that battle only**.
 

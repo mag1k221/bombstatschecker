@@ -4,7 +4,7 @@ import { loadShare } from "@/lib/server/share-store";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = { title: "Boomsquad — shared battle results", robots: { index: false } };
+export const metadata: Metadata = { title: "Shared battle results", robots: { index: false } };
 
 export default async function SharedPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

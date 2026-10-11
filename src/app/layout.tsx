@@ -1,15 +1,21 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
+const description = "Paste an AlbionBB battle link and your squad roster to see kills, deaths, K/D, damage, healing and regear cost for that battle.";
+
 export const metadata: Metadata = {
-  title: "Boomsquad — Albion battle K/D tracker",
-  description: "Paste an AlbionBB battle link and your squad roster to see kills, deaths and K/D for that battle.",
+  metadataBase: process.env.VERCEL_PROJECT_PRODUCTION_URL ? new URL(`https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`) : undefined,
+  title: { default: "BombStatsChecker — Albion Online squad K/D & regear", template: "%s · BombStatsChecker" },
+  description,
+  applicationName: "BombStatsChecker",
+  openGraph: { title: "BombStatsChecker", description, siteName: "BombStatsChecker", type: "website" },
+  twitter: { card: "summary_large_image", title: "BombStatsChecker", description },
 };
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f6f6f4" },
-    { media: "(prefers-color-scheme: dark)", color: "#0b0b0c" },
+    { media: "(prefers-color-scheme: light)", color: "#f3f6fa" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b1016" },
   ],
 };
 
