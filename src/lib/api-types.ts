@@ -1,6 +1,6 @@
 /** Wire format for POST /api/analyze — shared by server and client. */
 import type { BattleMeta, DataIssue, RegionId } from "@/lib/types";
-import type { FriendlyFireEvent, MemberStat, SquadSummary } from "@/lib/stats/compute";
+import type { FriendlyFireEvent, MemberStat, RoleStat, SquadSummary } from "@/lib/stats/compute";
 
 export interface AnalyzeRequest {
   url?: string;
@@ -32,6 +32,7 @@ export interface AnalyzeResponse {
   };
   summary: SquadSummary;
   members: MemberStat[];
+  roleBreakdown: RoleStat[];
   friendlyFire: FriendlyFireEvent[];
 }
 

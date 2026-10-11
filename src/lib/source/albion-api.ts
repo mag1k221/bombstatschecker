@@ -7,7 +7,8 @@
  * Constraints observed: limit must be ≤ 51, offset must be ≤ 1000 (HTTP 400 otherwise),
  * and an unknown battle returns 200 with [] for events.
  */
-import type { DataIssue, KillEvent, PlayerRef, RegionId } from "@/lib/types";
+import type { DataIssue, KillEvent, PlayerRef, RegionId, WeaponUse } from "@/lib/types";
+import { isValidItemType } from "@/lib/weapons/catalog";
 import { REGIONS } from "./regions";
 import type { HttpClient } from "./http";
 
@@ -38,31 +39,49 @@ export interface EventsResult {
   /** True when paging stopped because of failures rather than reaching the end. */
   abortedOnFailures: boolean;
   malformed: number;
+  playerWeapons: Record<string, WeaponUse[]>;
   issues: DataIssue[];
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v : null);
+
+/** Main-hand item type from an Equipment object, validated against the item-ID format. */
+function mainHandOf(r: Record<string, unknown>): string | null {
+  const eq = r.Equipment;
+  if (!eq || typeof eq !== "object") return null;
+  const mh = (eq as Record<string, unknown>).MainHand;
+  if (!mh || typeof mh !== "object") return null;
+  const t = (mh as Record<string, unknown>).Type;
+  return isValidItemType(t) ? t : null;
+}
 
 function toPlayer(raw: unknown): PlayerRef | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const name = str(r.Name);
   if (!name) return null;
-  return { id: str(r.Id), name, guildName: str(r.GuildName), allianceName: str(r.AllianceName) };
+  return { id: str(r.Id), name, guildName: str(r.GuildName), allianceName: str(r.AllianceName), weapon: mainHandOf(r) };
 }
 
-function namesOf(list: unknown): string[] {
+interface Seen {
+  name: string;
+  weapon: string | null;
+}
+
+function playersOf(list: unknown): Seen[] {
   if (!Array.isArray(list)) return [];
-  const out: string[] = [];
+  const out: Seen[] = [];
   for (const p of list) {
-    const n = p && typeof p === "object" ? str((p as Record<string, unknown>).Name) : null;
-    if (n) out.push(n);
+    if (!p || typeof p !== "object") continue;
+    const r = p as Record<string, unknown>;
+    const n = str(r.Name);
+    if (n) out.push({ name: n, weapon: mainHandOf(r) });
   }
   return out;
 }
 
 /** Normalizes one raw event. Returns null if required fields are missing. */
-export function normalizeEvent(raw: unknown): (KillEvent & { groupMembers: string[] }) | null {
+export function normalizeEvent(raw: unknown): (KillEvent & { groupMembers: Seen[]; participantGear: Seen[] }) | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const id = r.EventId;
@@ -71,14 +90,16 @@ export function normalizeEvent(raw: unknown): (KillEvent & { groupMembers: strin
   const victim = toPlayer(r.Victim);
   if (!killer || !victim) return null;
   const battleId = typeof r.BattleId === "number" ? r.BattleId : NaN;
+  const participantGear = playersOf(r.Participants);
   return {
     id,
     battleId,
     timestamp: str(r.TimeStamp),
     killer,
     victim,
-    participants: namesOf(r.Participants),
-    groupMembers: namesOf(r.GroupMembers),
+    participants: participantGear.map((p) => p.name),
+    participantGear,
+    groupMembers: playersOf(r.GroupMembers),
   };
 }
 
@@ -144,6 +165,29 @@ export async function fetchBattleEvents(
   let abortedOnFailures = false;
   let malformed = 0;
   let foreign = 0;
+  const weapons = new Map<string, Map<string, WeaponUse>>();
+
+  /** Records each player's main hand once per distinct event (killer/victim take precedence). */
+  const recordWeapons = (event: KillEvent, participantGear: Seen[], groupMembers: Seen[]) => {
+    const perEvent = new Map<string, string>();
+    const consider = (name: string, weapon: string | null | undefined) => {
+      if (weapon && !perEvent.has(name)) perEvent.set(name, weapon);
+    };
+    consider(event.killer.name, event.killer.weapon);
+    consider(event.victim.name, event.victim.weapon);
+    for (const p of participantGear) consider(p.name, p.weapon);
+    for (const g of groupMembers) consider(g.name, g.weapon);
+    for (const [name, type] of perEvent) {
+      let m = weapons.get(name);
+      if (!m) weapons.set(name, (m = new Map()));
+      const u = m.get(type);
+      if (!u) m.set(type, { type, count: 1, lastSeen: event.timestamp });
+      else {
+        u.count++;
+        if ((event.timestamp ?? "") > (u.lastSeen ?? "")) u.lastSeen = event.timestamp;
+      }
+    }
+  };
 
   const pageUrl = (offset: number) =>
     `${REGIONS[region].apiBase}/events/battle/${encodeURIComponent(String(battleId))}?offset=${offset}&limit=${PAGE_SIZE}`;
@@ -178,9 +222,12 @@ export async function fetchBattleEvents(
         foreign++;
         continue;
       }
-      const { groupMembers, ...event } = ev;
-      for (const n of [event.killer.name, event.victim.name, ...event.participants, ...groupMembers]) seen.add(n);
-      if (!byId.has(event.id)) byId.set(event.id, event);
+      const { groupMembers, participantGear, ...event } = ev;
+      for (const n of [event.killer.name, event.victim.name, ...event.participants, ...groupMembers.map((g) => g.name)]) seen.add(n);
+      if (!byId.has(event.id)) {
+        byId.set(event.id, event);
+        recordWeapons(event, participantGear, groupMembers);
+      }
     }
     if (page.length < PAGE_SIZE) return "stop"; // reached the end
     if (offset >= MAX_OFFSET) {
@@ -239,6 +286,7 @@ export async function fetchBattleEvents(
     capReached,
     abortedOnFailures,
     malformed,
+    playerWeapons: Object.fromEntries([...weapons].map(([n, m]) => [n, [...m.values()]])),
     issues,
   };
 }

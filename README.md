@@ -36,6 +36,14 @@ Supported links: `https://<host>/battles/<id>` and `https://<host>/battles/multi
 - **Friendly fire**: if one roster member kills another, it counts normally and is also listed and badged separately.
 - **Completeness**: a battle is *partial* when any of these happens: an events page failed after retries, the API offset cap was reached, records were malformed, the summary was unavailable, or fewer events were retrieved than the summary’s `totalKills`. When the dataset is partial, every row is flagged, and “not found” is shown as inconclusive.
 
+## Weapons and roles
+
+- **Weapon (data from the game):** each kill event in the official API includes the gear of the killer, the victim, the participants and the killer’s group members. For each member, the app counts how many distinct events show them with each main-hand item. The weapon used most often is shown, with tiers and enchants of the same weapon counted together, and ties go to the most recent. Other weapons the member swapped to are listed as “+N swaps”. This is the same gear AlbionBB shows next to each player.
+- **Weapon names** come from the game’s item data (`src/lib/weapons/catalog.generated.json`). To refresh it after a patch, run `node scripts/build-weapon-catalog.mjs`, which reads [ao-data/ao-bin-dumps](https://github.com/ao-data/ao-bin-dumps).
+- **Icons** are loaded by the browser from the official render service: `https://render.albiononline.com/v1/item/{ITEM}.png`.
+- **Role (inferred, not reported by the game):** Tank, Healer, Support, Melee DPS or Ranged DPS, decided by the weapon line plus a few per-weapon exceptions. Edit `src/lib/weapons/roles.ts` to match your guild’s comp. A member with no observed gear shows as *Unknown*. This happens when the member only appears in the battle summary and never in a kill event.
+- The **By role** card shows members, kills, deaths and K/D for each role. As everywhere else, K/D is a ratio of sums.
+
 ## Architecture
 
 ```
@@ -46,6 +54,7 @@ src/lib/source/   data-source integration (no statistics)
   albion-api.ts     summary + paginated events adapter, normalization
   albion-source.ts  per-battle loading, completeness assessment, TTL cache, merge
   demo.ts           fictional demo dataset (explicit opt-in only)
+src/lib/weapons/  item catalog, main-hand resolution, weapon → role mapping
 src/lib/stats/    pure statistics (no I/O): roster.ts, kd.ts, compute.ts, csv.ts
 src/lib/server/   analyze.ts orchestration, rate limiter, TTL cache
 src/app/api/analyze/route.ts   POST endpoint
@@ -71,7 +80,7 @@ Requirements: Node 20+ (tested on Node 24).
 npm install
 cp .env.example .env.local   # optional — all variables have defaults
 npm run dev                  # http://localhost:3000
-npm test                     # 49 tests
+npm test                     # 54 tests
 npm run build && npm start   # production
 ```
 

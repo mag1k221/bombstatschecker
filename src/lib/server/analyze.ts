@@ -96,6 +96,7 @@ export async function analyze(input: unknown, loadOpts: LoadOptions = {}, demoEn
       roster: { duplicatesRemoved: roster.duplicates, invalid: roster.invalid, overflow: roster.overflow },
       summary: stats.summary,
       members: stats.members,
+      roleBreakdown: stats.roleBreakdown,
       friendlyFire: stats.friendlyFire,
     },
   };

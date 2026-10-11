@@ -1,4 +1,5 @@
 import type { MemberStat } from "./compute";
+import { ROLE_LABELS } from "@/lib/weapons/roles";
 
 /** Neutralizes spreadsheet formula injection and quotes per RFC 4180. */
 export function csvCell(value: string | number): string {
@@ -8,12 +9,14 @@ export function csvCell(value: string | number): string {
 }
 
 export function membersToCsv(members: readonly MemberStat[]): string {
-  const header = ["Nickname", "Status", "Kills", "Deaths", "K/D", "Friendly kills", "Friendly deaths", "Data complete"];
+  const header = ["Nickname", "Status", "Role (inferred)", "Weapon", "Kills", "Deaths", "K/D", "Friendly kills", "Friendly deaths", "Data complete"];
   const rows = members.map((m) => {
     const found = m.status === "matched";
     return [
       m.name,
       found ? "Matched" : "Not found",
+      found ? ROLE_LABELS[m.role] : "",
+      m.weapon ? `${m.weapon.name} (T${m.weapon.tier}${m.weapon.enchant ? `.${m.weapon.enchant}` : ""})` : "",
       found ? m.kills : "",
       found ? m.deaths : "",
       m.kdDisplay,

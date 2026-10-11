@@ -9,7 +9,9 @@ import { useMemo, useState } from "react";
 import type { AnalyzeResponse } from "@/lib/api-types";
 import type { MemberStat } from "@/lib/stats/compute";
 import { membersToCsv } from "@/lib/stats/csv";
+import { ROLE_LABELS, type Role } from "@/lib/weapons/roles";
 import { Badge, Button, Card, Dot } from "./ui";
+import { RoleBadge, RoleIcon, WeaponIcon, weaponLabel } from "./Weapon";
 
 type SortKey = "name" | "kills" | "deaths" | "kd";
 type Filter = "all" | "matched" | "not_found" | "friendly";
@@ -63,6 +65,7 @@ export function Results({
       )}
 
       <Summary data={data} />
+      {data.roleBreakdown.length > 0 && <RoleBreakdown data={data} />}
       <MemberTable data={data} />
       {data.friendlyFire.length > 0 && <FriendlyFire data={data} />}
       <SourceInfo data={data} />
@@ -131,6 +134,31 @@ function Stat({ label, value, hint }: { label: string; value: React.ReactNode; h
   );
 }
 
+function RoleBreakdown({ data }: { data: AnalyzeResponse }) {
+  return (
+    <Card className="p-5 sm:p-6">
+      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-[16px] font-semibold tracking-tight">By role</h3>
+        <p className="text-[12.5px] text-subtle">Inferred from each member’s most-used weapon in this battle</p>
+      </div>
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
+        {data.roleBreakdown.map((r) => (
+          <div key={r.role} className="rounded-2xl border border-line bg-surface-2/40 p-3.5">
+            <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-muted">
+              <RoleIcon role={r.role} /> {ROLE_LABELS[r.role]}
+              <span className="tnum ml-auto text-subtle">{r.members}</span>
+            </p>
+            <p className="tnum mt-2 text-[22px] font-semibold leading-none tracking-tight">{r.kdDisplay}</p>
+            <p className="tnum mt-1.5 text-[12px] text-subtle">
+              {r.kills} K · {r.deaths} D
+            </p>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function statusOf(m: MemberStat): { tone: "ok" | "neutral" | "warn"; label: string; title: string } {
   if (m.status === "not_found") {
     return m.incomplete
@@ -144,6 +172,7 @@ function statusOf(m: MemberStat): { tone: "ok" | "neutral" | "warn"; label: stri
 function MemberTable({ data }: { data: AnalyzeResponse }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [roleFilter, setRoleFilter] = useState<Role | "all">("all");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "kills", dir: "desc" });
   const hasFriendly = data.friendlyFire.length > 0;
 
@@ -151,6 +180,7 @@ function MemberTable({ data }: { data: AnalyzeResponse }) {
     const q = query.trim().toLowerCase();
     const filtered = data.members.filter((m) => {
       if (q && !m.name.toLowerCase().includes(q) && !m.input.toLowerCase().includes(q)) return false;
+      if (roleFilter !== "all" && (m.status !== "matched" || m.role !== roleFilter)) return false;
       if (filter === "matched") return m.status === "matched";
       if (filter === "not_found") return m.status === "not_found";
       if (filter === "friendly") return m.friendlyKills + m.friendlyDeaths > 0;
@@ -168,7 +198,7 @@ function MemberTable({ data }: { data: AnalyzeResponse }) {
       else c = kdSort(a) - kdSort(b) || a.kills - b.kills;
       return c * dir || a.name.localeCompare(b.name);
     });
-  }, [data.members, query, filter, sort]);
+  }, [data.members, query, filter, roleFilter, sort]);
 
   const counts = {
     all: data.members.length,
@@ -234,6 +264,24 @@ function MemberTable({ data }: { data: AnalyzeResponse }) {
               </button>
             ))}
           </div>
+          {data.roleBreakdown.length > 0 && (
+            <>
+              <label className="sr-only" htmlFor="role-select">Filter by role</label>
+              <select
+                id="role-select"
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value as Role | "all")}
+                className="h-9 rounded-full border border-line-strong bg-surface px-3 text-[13px] text-fg focus:border-accent focus:outline-none"
+              >
+                <option value="all">All roles</option>
+                {data.roleBreakdown.map((r) => (
+                  <option key={r.role} value={r.role}>
+                    {ROLE_LABELS[r.role]} ({r.members})
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
           <label className="sr-only" htmlFor="sort-select">Sort by</label>
           <select
             id="sort-select"
@@ -262,8 +310,9 @@ function MemberTable({ data }: { data: AnalyzeResponse }) {
           <thead>
             <tr className="text-[12px] font-medium text-subtle">
               <Th label="Nickname" k="name" sort={sort} onSort={toggleSort} className="pl-3 sm:pl-5" />
-              <Th label="Kills" k="kills" sort={sort} onSort={toggleSort} numeric />
-              <Th label="Deaths" k="deaths" sort={sort} onSort={toggleSort} numeric />
+              <th scope="col" className="hidden px-4 py-3 font-medium lg:table-cell">Role · weapon</th>
+              <Th label="Kills" short="K" k="kills" sort={sort} onSort={toggleSort} numeric />
+              <Th label="Deaths" short="D" k="deaths" sort={sort} onSort={toggleSort} numeric />
               <Th label="K/D" k="kd" sort={sort} onSort={toggleSort} numeric />
               <th scope="col" className="hidden px-4 py-3 pr-5 font-medium sm:table-cell">Status</th>
             </tr>
@@ -274,7 +323,10 @@ function MemberTable({ data }: { data: AnalyzeResponse }) {
               const found = m.status === "matched";
               return (
                 <tr key={m.key} className="border-t border-line transition-colors hover:bg-surface-2/50">
-                  <td className="py-3.5 pr-2 pl-4 sm:pr-4 sm:pl-5">
+                  <td className="py-3 pr-2 pl-3 sm:pr-4 sm:pl-5">
+                    <div className="flex items-center gap-2.5 sm:gap-3">
+                    <WeaponIcon weapon={found ? m.weapon : null} />
+                    <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className={clsx("text-[14.5px] font-medium", !found && "text-muted")}>{m.name}</span>
                       {m.friendlyKills + m.friendlyDeaths > 0 && (
@@ -284,16 +336,38 @@ function MemberTable({ data }: { data: AnalyzeResponse }) {
                       )}
                     </div>
                     {found && m.name !== m.input && <p className="mt-0.5 text-[12px] text-subtle">submitted as “{m.input}”</p>}
+                    {found && (
+                      <p className="mt-0.5 flex min-w-0 items-center gap-1 whitespace-nowrap text-[12px] text-muted lg:hidden" title={m.weapon ? weaponLabel(m.weapon) : undefined}>
+                        <RoleIcon role={m.role} className="size-3 shrink-0" />
+                        {ROLE_LABELS[m.role]}
+                        {m.weapon && <span className="hidden truncate text-subtle sm:inline">· {m.weapon.name}</span>}
+                      </p>
+                    )}
                     <div className="mt-1.5 flex items-center gap-1.5 sm:hidden">
                       <Badge tone={st.tone} title={st.title} className="!text-[11px]">
                         <Dot tone={st.tone} /> {st.label}
                       </Badge>
                       {found && m.incomplete && <AlertTriangle className="size-3.5 text-warn" aria-label="May be incomplete" />}
                     </div>
+                    </div>
+                    </div>
+                  </td>
+                  <td className="hidden px-4 py-3 lg:table-cell">
+                    {found ? (
+                      <div>
+                        <RoleBadge role={m.role} />
+                        <p className="mt-1 max-w-[220px] truncate text-[12px] text-subtle" title={m.otherWeapons.length ? `Also used: ${m.otherWeapons.join(", ")}` : undefined}>
+                          {m.weapon ? weaponLabel(m.weapon) : "No gear data"}
+                          {m.otherWeapons.length > 0 && <span> · +{m.otherWeapons.length} swap{m.otherWeapons.length > 1 ? "s" : ""}</span>}
+                        </p>
+                      </div>
+                    ) : (
+                      <span className="text-subtle">—</span>
+                    )}
                   </td>
                   <Num value={found ? m.kills : null} />
                   <Num value={found ? m.deaths : null} />
-                  <td className={clsx("tnum px-2.5 py-3.5 text-right text-[14.5px] font-semibold sm:px-4", !found && "text-subtle")}>
+                  <td className={clsx("tnum px-1.5 py-3.5 pr-3 text-right text-[14.5px] font-semibold sm:px-4", !found && "text-subtle")}>
                     {m.kdDisplay === "∞" ? <span className="text-[19px] leading-none" aria-label="infinite">∞</span> : m.kdDisplay}
                   </td>
                   <td className="hidden px-4 py-3.5 pr-5 sm:table-cell">
@@ -313,7 +387,7 @@ function MemberTable({ data }: { data: AnalyzeResponse }) {
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-5 py-12 text-center text-[14px] text-muted">
+                <td colSpan={6} className="px-5 py-12 text-center text-[14px] text-muted">
                   No members match {query ? <>“{query}”</> : "this filter"}.
                 </td>
               </tr>
@@ -332,16 +406,23 @@ function MemberTable({ data }: { data: AnalyzeResponse }) {
   );
 }
 
-function Th({ label, k, sort, onSort, numeric, className }: { label: string; k: SortKey; sort: { key: SortKey; dir: "asc" | "desc" }; onSort: (k: SortKey) => void; numeric?: boolean; className?: string }) {
+function Th({ label, short, k, sort, onSort, numeric, className }: { label: string; short?: string; k: SortKey; sort: { key: SortKey; dir: "asc" | "desc" }; onSort: (k: SortKey) => void; numeric?: boolean; className?: string }) {
   const active = sort.key === k;
   const Icon = !active ? ArrowUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown;
   return (
-    <th scope="col" aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} className={clsx("px-1.5 py-2 sm:px-4", numeric && "text-right", className)}>
+    <th scope="col" aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} className={clsx("px-1 py-2 sm:px-4", numeric && "text-right", className)}>
       <button
         onClick={() => onSort(k)}
         className={clsx("inline-flex items-center gap-1 rounded-md px-1 py-1 font-medium transition-colors hover:text-fg", active && "text-fg", numeric && "flex-row-reverse")}
       >
-        {label}
+        {short ? (
+          <>
+            <span className="sm:hidden" aria-hidden>{short}</span>
+            <span className="sr-only sm:not-sr-only">{label}</span>
+          </>
+        ) : (
+          label
+        )}
         <Icon className={clsx("size-3", !active && "opacity-50")} aria-hidden />
       </button>
     </th>
@@ -350,7 +431,7 @@ function Th({ label, k, sort, onSort, numeric, className }: { label: string; k: 
 
 function Num({ value }: { value: number | null }) {
   return (
-    <td className={clsx("tnum px-2.5 py-3.5 text-right text-[14.5px] sm:px-4", value === null ? "text-subtle" : value === 0 ? "text-muted" : "font-medium")}>
+    <td className={clsx("tnum px-1.5 py-3.5 text-right text-[14.5px] sm:px-4", value === null ? "text-subtle" : value === 0 ? "text-muted" : "font-medium")}>
       {value === null ? "—" : value}
     </td>
   );
@@ -468,7 +549,7 @@ function SourceInfo({ data }: { data: AnalyzeResponse }) {
       <p className="mt-5 border-t border-line pt-4 text-[12.5px] leading-relaxed text-subtle">
         {isDemo
           ? "Demo data is fictional and bundled with the app."
-          : "Scope: only the kill events of the battle(s) in this link, retrieved from the official Albion Online game-info API (the data AlbionBB itself displays). A kill is the killing blow; assists are not counted. A member is “matched” if their exact nickname appears anywhere in the battle data."}
+          : "Scope: only the kill events of the battle(s) in this link, retrieved from the official Albion Online game-info API (the data AlbionBB itself displays). A kill is the killing blow; assists are not counted. A member is “matched” if their exact nickname appears anywhere in the battle data. Weapon = the main hand a member was seen with most often in this battle’s kill events; role is inferred from that weapon (the game doesn’t report roles). Weapon icons come from the official Albion Online render service."}
       </p>
     </Card>
   );

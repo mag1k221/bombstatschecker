@@ -49,6 +49,16 @@ export function demoDataset(): BattleDataset {
       },
     ],
     events,
+    playerWeapons: {
+      Ashwick: [{ type: "T8_2H_DUALSCIMITAR_UNDEAD@1", count: 4, lastSeen: "2026-01-01T20:06:00.000Z" }],
+      Brannoc: [{ type: "T8_MAIN_MACE@2", count: 3, lastSeen: "2026-01-01T20:07:00.000Z" }],
+      Cinderfall: [
+        { type: "T7_2H_ICECRYSTAL_UNDEAD@2", count: 3, lastSeen: "2026-01-01T20:08:00.000Z" },
+        { type: "T7_2H_FIRESTAFF_HELL@1", count: 1, lastSeen: "2026-01-01T20:02:00.000Z" },
+      ],
+      Dovrel: [{ type: "T8_2H_HOLYSTAFF_HELL@1", count: 2, lastSeen: "2026-01-01T20:05:00.000Z" }],
+      Emberly: [{ type: "T7_2H_ENIGMATICSTAFF@2", count: 1, lastSeen: "2026-01-01T20:09:00.000Z" }],
+    },
     playersSeen: ["Ashwick", "Brannoc", "Cinderfall", "Dovrel", "Emberly", "Fennick", "Vexmor", "Quillon", "Halvard", "Morrow", "Ysolde"],
     issues: [],
   };

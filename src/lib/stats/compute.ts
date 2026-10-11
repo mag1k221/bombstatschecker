@@ -2,6 +2,25 @@
 import type { BattleDataset } from "@/lib/types";
 import { formatKD, kdValue } from "./kd";
 import { normalizeName, type RosterMember } from "./roster";
+import { resolveLoadout } from "@/lib/weapons/loadout";
+import { ROLE_ORDER, type Role } from "@/lib/weapons/roles";
+
+export interface MemberWeapon {
+  /** Full item type (icon key), e.g. "T6_2H_KNUCKLES_SET2@3". */
+  type: string;
+  name: string;
+  tier: number | null;
+  enchant: number;
+}
+
+export interface RoleStat {
+  role: Role;
+  members: number;
+  kills: number;
+  deaths: number;
+  kd: number | null;
+  kdDisplay: string;
+}
 
 export type MemberStatus = "matched" | "not_found";
 
@@ -20,6 +39,12 @@ export interface MemberStat {
   friendlyDeaths: number;
   /** True when the dataset is partial: counts may be undercounted, and "not found" is not conclusive. */
   incomplete: boolean;
+  /** Most-used main-hand weapon in the battle; null when no gear was observed. */
+  weapon: MemberWeapon | null;
+  /** Inferred from the weapon (not provided by the game). */
+  role: Role;
+  /** Other weapons seen for this member in the battle. */
+  otherWeapons: string[];
 }
 
 export interface FriendlyFireEvent {
@@ -44,13 +69,14 @@ export interface SquadStats {
   members: MemberStat[];
   summary: SquadSummary;
   friendlyFire: FriendlyFireEvent[];
+  roleBreakdown: RoleStat[];
   eventsConsidered: number;
   duplicateEventsIgnored: number;
 }
 
 export function computeSquadStats(
   roster: readonly RosterMember[],
-  dataset: Pick<BattleDataset, "events" | "playersSeen">,
+  dataset: Pick<BattleDataset, "events" | "playersSeen"> & Partial<Pick<BattleDataset, "playerWeapons">>,
   opts: { partial: boolean },
 ): SquadStats {
   const rosterKeys = new Set(roster.map((m) => m.key));
@@ -99,10 +125,18 @@ export function computeSquadStats(
     }
   }
 
+  // Weapon observations keyed by normalized name (merging any capitalization variants).
+  const weaponsByKey = new Map<string, NonNullable<BattleDataset["playerWeapons"]>[string]>();
+  for (const [name, uses] of Object.entries(dataset.playerWeapons ?? {})) {
+    const k = normalizeName(name);
+    weaponsByKey.set(k, [...(weaponsByKey.get(k) ?? []), ...uses]);
+  }
+
   const members: MemberStat[] = roster.map((m) => {
     const found = displayByKey.has(m.key);
     const k = kills.get(m.key) ?? 0;
     const d = deaths.get(m.key) ?? 0;
+    const loadout = resolveLoadout(found ? weaponsByKey.get(m.key) : undefined);
     return {
       key: m.key,
       name: displayByKey.get(m.key) ?? m.input,
@@ -115,6 +149,11 @@ export function computeSquadStats(
       friendlyKills: fKills.get(m.key) ?? 0,
       friendlyDeaths: fDeaths.get(m.key) ?? 0,
       incomplete: opts.partial,
+      weapon: loadout.primary
+        ? { type: loadout.primary.type, name: loadout.primary.name, tier: loadout.primary.tier, enchant: loadout.primary.enchant }
+        : null,
+      role: found ? loadout.role : "unknown",
+      otherWeapons: loadout.others,
     };
   });
 
@@ -134,6 +173,12 @@ export function computeSquadStats(
       overallKd: kdValue(totalKills, totalDeaths),
       overallKdDisplay: formatKD(totalKills, totalDeaths),
     },
+    roleBreakdown: ROLE_ORDER.map((role) => {
+      const ms = matched.filter((m) => m.role === role);
+      const rk = ms.reduce((a, m) => a + m.kills, 0);
+      const rd = ms.reduce((a, m) => a + m.deaths, 0);
+      return { role, members: ms.length, kills: rk, deaths: rd, kd: kdValue(rk, rd), kdDisplay: formatKD(rk, rd) };
+    }).filter((r) => r.members > 0),
     friendlyFire: friendlyFire.sort((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? "")),
     eventsConsidered: seenIds.size,
     duplicateEventsIgnored: duplicates,

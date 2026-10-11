@@ -7,6 +7,16 @@ export interface PlayerRef {
   name: string;
   guildName: string | null;
   allianceName: string | null;
+  /** Main-hand item type at the time of the event, e.g. "T6_2H_KNUCKLES_SET2@3". */
+  weapon?: string | null;
+}
+
+/** How often a player was seen with a given main-hand item in a battle. */
+export interface WeaponUse {
+  type: string;
+  /** Number of distinct events the player appeared in with this item. */
+  count: number;
+  lastSeen: string | null;
 }
 
 /** One kill event, normalized from the source. `id` is the stable source event identifier. */
@@ -54,5 +64,7 @@ export interface BattleDataset {
   events: KillEvent[];
   /** Every player name seen in the retrieved data (summary roster, killers, victims, participants, group members). */
   playersSeen: string[];
+  /** Main-hand weapons observed per player name (source capitalization). */
+  playerWeapons: Record<string, WeaponUse[]>;
   issues: DataIssue[];
 }

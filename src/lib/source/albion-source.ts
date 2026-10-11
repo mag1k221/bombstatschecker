@@ -2,7 +2,7 @@
  * Builds a BattleDataset for a parsed AlbionBB link by querying the official API for every battle in it.
  * This module owns retrieval, caching and completeness assessment — not statistics.
  */
-import type { BattleDataset, BattleMeta, DataIssue, KillEvent, RegionId } from "@/lib/types";
+import type { BattleDataset, BattleMeta, DataIssue, KillEvent, RegionId, WeaponUse } from "@/lib/types";
 import { TtlCache } from "@/lib/server/ttl-cache";
 import { fetchBattleEvents, fetchBattleSummary, mapLimit } from "./albion-api";
 import { HttpClient } from "./http";
@@ -12,6 +12,7 @@ export interface BattleRecord {
   meta: BattleMeta;
   events: KillEvent[];
   playersSeen: string[];
+  playerWeapons: Record<string, WeaponUse[]>;
   issues: DataIssue[];
   retrievedAt: string;
   notFound: boolean;
@@ -64,6 +65,7 @@ export async function loadBattle(
       meta: emptyMeta(battleId, "failed"),
       events: [],
       playersSeen: [],
+      playerWeapons: {},
       issues: [{ kind: "battle_failed", battleId, message: `Battle ${battleId} was not found on this server.` }],
       retrievedAt,
       notFound: true,
@@ -120,6 +122,7 @@ export async function loadBattle(
     },
     events: ev.events,
     playersSeen: [...seen],
+    playerWeapons: ev.playerWeapons,
     issues,
     retrievedAt,
     notFound: false,
@@ -173,15 +176,29 @@ export function mergeRecords(records: BattleRecord[]): BattleDataset {
   const events = new Map<number, KillEvent>();
   const seen = new Set<string>();
   const issues: DataIssue[] = [];
+  const weapons = new Map<string, Map<string, WeaponUse>>();
   for (const r of records) {
     for (const e of r.events) if (!events.has(e.id)) events.set(e.id, e);
     for (const n of r.playersSeen) seen.add(n);
     issues.push(...r.issues);
+    for (const [name, uses] of Object.entries(r.playerWeapons ?? {})) {
+      let m = weapons.get(name);
+      if (!m) weapons.set(name, (m = new Map()));
+      for (const u of uses) {
+        const cur = m.get(u.type);
+        if (!cur) m.set(u.type, { ...u });
+        else {
+          cur.count += u.count;
+          if ((u.lastSeen ?? "") > (cur.lastSeen ?? "")) cur.lastSeen = u.lastSeen;
+        }
+      }
+    }
   }
   return {
     battles: records.map((r) => r.meta),
     events: [...events.values()],
     playersSeen: [...seen],
+    playerWeapons: Object.fromEntries([...weapons].map(([n, m]) => [n, [...m.values()]])),
     issues,
   };
 }

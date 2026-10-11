@@ -86,7 +86,8 @@ describe("CSV export", () => {
     expect(csvCell('a,"b"')).toBe('"a,""b"""');
     const s = computeSquadStats(roster("A", "Ghost"), { events: [kill(1, "A", "X")], playersSeen: [] }, { partial: false });
     const lines = membersToCsv(s.members).trim().split("\r\n");
-    expect(lines[1]).toBe("A,Matched,1,0,∞,0,0,Yes");
-    expect(lines[2]).toBe("Ghost,Not found,,,—,,,Yes");
+    expect(lines[0]).toBe("Nickname,Status,Role (inferred),Weapon,Kills,Deaths,K/D,Friendly kills,Friendly deaths,Data complete");
+    expect(lines[1]).toBe("A,Matched,Unknown,,1,0,∞,0,0,Yes");
+    expect(lines[2]).toBe("Ghost,Not found,,,,,—,,,Yes");
   });
 });
