@@ -85,6 +85,25 @@ export interface FriendlyFireEvent {
   victim: string;
 }
 
+/** How much of a guild's (or alliance's) kills in this battle came from the squad. */
+export interface GroupShare {
+  kind: "guild" | "alliance";
+  name: string;
+  /** Alliance tag of the guild, when known. */
+  alliance: string | null;
+  /** Roster members seen fighting for this group (as killer or victim). */
+  squadMembers: number;
+  squadKills: number;
+  totalKills: number;
+  /** squadKills / totalKills, 0..1; null when the group has no kills. */
+  killShare: number | null;
+  squadDeaths: number;
+  totalDeaths: number;
+  deathShare: number | null;
+  /** Top squad killers for this group: [display name, kills]. */
+  topKillers: { name: string; kills: number }[];
+}
+
 export interface SquadSummary {
   submitted: number;
   matched: number;
@@ -101,6 +120,7 @@ export interface SquadStats {
   friendlyFire: FriendlyFireEvent[];
   roleBreakdown: RoleStat[];
   squadDeaths: SquadDeath[];
+  groupShares: GroupShare[];
   eventsConsidered: number;
   duplicateEventsIgnored: number;
 }
@@ -126,6 +146,21 @@ export function computeSquadStats(
   const friendlyFire: FriendlyFireEvent[] = [];
   const squadDeaths: SquadDeath[] = [];
   const inc = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
+  // Per guild/alliance tallies, keyed "guild|Name" / "alliance|Name".
+  const groups = new Map<string, { kind: "guild" | "alliance"; name: string; alliance: string | null; kills: number; deaths: number; squadKills: number; squadDeaths: number; members: Set<string>; killers: Map<string, number> }>();
+  const group = (kind: "guild" | "alliance", name: string, alliance: string | null) => {
+    const key = `${kind}|${name}`;
+    let g = groups.get(key);
+    if (!g) groups.set(key, (g = { kind, name, alliance, kills: 0, deaths: 0, squadKills: 0, squadDeaths: 0, members: new Set(), killers: new Map() }));
+    if (!g.alliance && alliance) g.alliance = alliance;
+    return g;
+  };
+  const groupsOf = (p: { guildName: string | null; allianceName: string | null }) => {
+    const out = [];
+    if (p.guildName) out.push(group("guild", p.guildName, p.allianceName));
+    if (p.allianceName) out.push(group("alliance", p.allianceName, null));
+    return out;
+  };
 
   // Deduplicate by stable event ID so the same event is never counted twice.
   const seenIds = new Set<number>();
@@ -143,6 +178,21 @@ export function computeSquadStats(
     const killerIn = rosterKeys.has(kk);
     const victimIn = rosterKeys.has(vk);
     if (killerIn) inc(kills, kk); // killer credit only — participants/assists are never kills
+    for (const g of groupsOf(e.killer)) {
+      g.kills++;
+      if (killerIn) {
+        g.squadKills++;
+        g.members.add(kk);
+        g.killers.set(kk, (g.killers.get(kk) ?? 0) + 1);
+      }
+    }
+    for (const g of groupsOf(e.victim)) {
+      g.deaths++;
+      if (victimIn) {
+        g.squadDeaths++;
+        g.members.add(vk);
+      }
+    }
     if (victimIn) {
       inc(deaths, vk);
       squadDeaths.push({
@@ -243,6 +293,25 @@ export function computeSquadStats(
       const rd = ms.reduce((a, m) => a + m.deaths, 0);
       return { role, members: ms.length, kills: rk, deaths: rd, kd: kdValue(rk, rd), kdDisplay: formatKD(rk, rd) };
     }).filter((r) => r.members > 0),
+    groupShares: [...groups.values()]
+      .filter((g) => g.members.size > 0)
+      .map((g) => ({
+        kind: g.kind,
+        name: g.name,
+        alliance: g.kind === "guild" ? g.alliance : null,
+        squadMembers: g.members.size,
+        squadKills: g.squadKills,
+        totalKills: g.kills,
+        killShare: g.kills > 0 ? g.squadKills / g.kills : null,
+        squadDeaths: g.squadDeaths,
+        totalDeaths: g.deaths,
+        deathShare: g.deaths > 0 ? g.squadDeaths / g.deaths : null,
+        topKillers: [...g.killers.entries()]
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+          .slice(0, 5)
+          .map(([k, n]) => ({ name: displayByKey.get(k) ?? k, kills: n })),
+      }))
+      .sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "guild" ? -1 : 1) || b.squadMembers - a.squadMembers || b.totalKills - a.totalKills || a.name.localeCompare(b.name)),
     squadDeaths: squadDeaths.sort((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? "")),
     friendlyFire: friendlyFire.sort((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? "")),
     eventsConsidered: seenIds.size,

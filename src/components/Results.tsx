@@ -12,6 +12,7 @@ import { membersToCsv } from "@/lib/stats/csv";
 import { discordSummary } from "@/lib/stats/discord";
 import { formatCompact } from "@/lib/stats/format";
 import { RegearPanel, useRegear, type RegearState } from "./Regear";
+import { GuildShareCard } from "./GuildShare";
 import { ROLE_LABELS, type Role } from "@/lib/weapons/roles";
 import { Badge, Button, Card, Dot } from "./ui";
 import { RoleBadge, RoleIcon, WeaponIcon, weaponLabel } from "./Weapon";
@@ -92,6 +93,7 @@ export function Results({
       ) : (
         <div className="space-y-6 animate-rise">
           <Summary data={data} />
+          <GuildShareCard data={data} />
           {data.squadDeaths.length > 0 && <RegearTeaser regear={regear} deaths={data.squadDeaths.length} onOpen={() => setView("regear")} />}
           {data.roleBreakdown.length > 0 && <RoleBreakdown data={data} />}
           <MemberTable data={data} />

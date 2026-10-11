@@ -1,6 +1,6 @@
 /** Wire format for POST /api/analyze — shared by server and client. */
 import type { BattleMeta, DataIssue, RegionId } from "@/lib/types";
-import type { FriendlyFireEvent, MemberStat, RoleStat, SquadDeath, SquadSummary } from "@/lib/stats/compute";
+import type { FriendlyFireEvent, GroupShare, MemberStat, RoleStat, SquadDeath, SquadSummary } from "@/lib/stats/compute";
 
 export interface AnalyzeRequest {
   url?: string;
@@ -34,6 +34,8 @@ export interface AnalyzeResponse {
   members: MemberStat[];
   roleBreakdown: RoleStat[];
   squadDeaths: SquadDeath[];
+  /** Squad share of each guild/alliance's kills (guilds first, most squad members first). */
+  groupShares: GroupShare[];
   friendlyFire: FriendlyFireEvent[];
 }
 

@@ -239,3 +239,31 @@ describe("discord share link", () => {
     expect(discordSummary(base, { shareUrl: "https://x.app/?" + "a".repeat(1200) })).not.toContain("Full results");
   });
 });
+
+describe("guild contribution", () => {
+  const ev = (id: number, k: [string, string, string | null], v: [string, string, string | null]) => ({
+    id, battleId: 1, timestamp: null, participants: [],
+    killer: { id: null, name: k[0], guildName: k[1], allianceName: k[2] },
+    victim: { id: null, name: v[0], guildName: v[1], allianceName: v[2] },
+  });
+  it("computes squad share of guild and alliance kills", () => {
+    const roster = buildRoster(["A", "B"]).members;
+    const events = [
+      ev(1, ["A", "G1", "AL"], ["X", "E", null]),
+      ev(2, ["A", "G1", "AL"], ["Y", "E", null]),
+      ev(3, ["C", "G1", "AL"], ["Z", "E", null]),
+      ev(4, ["D", "G2", "AL"], ["W", "E", null]),
+      ev(5, ["X2", "E", null], ["B", "G1", "AL"]),
+      ev(6, ["X3", "E", null], ["C", "G1", "AL"]),
+    ];
+    const s = computeSquadStats(roster, { events, playersSeen: ["A", "B"] }, { partial: false });
+    const g = s.groupShares.find((x) => x.kind === "guild" && x.name === "G1")!;
+    expect(g).toMatchObject({ squadKills: 2, totalKills: 3, squadDeaths: 1, totalDeaths: 2, squadMembers: 2, alliance: "AL" });
+    expect(g.killShare).toBeCloseTo(2 / 3);
+    expect(g.topKillers).toEqual([{ name: "A", kills: 2 }]);
+    const al = s.groupShares.find((x) => x.kind === "alliance")!;
+    expect(al).toMatchObject({ squadKills: 2, totalKills: 4 });
+    expect(s.groupShares[0].kind).toBe("guild");
+    expect(s.groupShares.some((x) => x.name === "E")).toBe(false); // enemy guild has no squad members
+  });
+});

@@ -98,6 +98,7 @@ export async function analyze(input: unknown, loadOpts: LoadOptions = {}, demoEn
       members: stats.members,
       roleBreakdown: stats.roleBreakdown,
       squadDeaths: stats.squadDeaths,
+      groupShares: stats.groupShares,
       friendlyFire: stats.friendlyFire,
     },
   };

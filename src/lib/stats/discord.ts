@@ -10,7 +10,7 @@ function pad(s: string, n: number, right = false): string {
 }
 
 export function discordSummary(
-  data: Pick<AnalyzeResponse, "summary" | "members" | "source" | "mode">,
+  data: Pick<AnalyzeResponse, "summary" | "members" | "source" | "mode"> & Partial<Pick<AnalyzeResponse, "groupShares">>,
   opts: { regearTotal?: number | null; regearLocation?: string; shareUrl?: string | null; maxRows?: number; limit?: number } = {},
 ): string {
   const limit = opts.limit ?? DISCORD_LIMIT;
@@ -20,6 +20,10 @@ export function discordSummary(
     `**BombStatsChecker report**${data.mode === "demo" ? " (demo data)" : ""} — battle ${battles || "?"} · ${data.source.regionLabel}`,
     `**K/D ${s.overallKdDisplay}** · ${s.totalKills} kills · ${s.totalDeaths} deaths · ${s.matched}/${s.submitted} members found`,
   ];
+  const guild = data.groupShares?.find((g) => g.kind === "guild" && g.killShare !== null);
+  if (guild) {
+    header.push(`Guild share: **${Math.round(guild.killShare! * 100)}%** of ${guild.name}’s kills (${guild.squadKills}/${guild.totalKills})`);
+  }
   if (opts.regearTotal != null && opts.regearTotal > 0) {
     header.push(`Regear estimate: **${formatCompact(opts.regearTotal)} silver**${opts.regearLocation ? ` (${opts.regearLocation})` : ""}`);
   }
