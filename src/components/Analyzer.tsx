@@ -8,7 +8,7 @@ import { REGIONS } from "@/lib/source/regions";
 import { DEMO_ROSTER } from "@/lib/source/demo";
 import { LinkError, parseAlbionBBLink } from "@/lib/source/url";
 import { buildRoster } from "@/lib/stats/roster";
-import { buildShareQuery, parseShareQuery } from "@/lib/share";
+import { buildShareQuery, parseShareQuery, type SharePayload } from "@/lib/share";
 import { Results, ResultsSkeleton } from "./Results";
 import { RosterInput } from "./RosterInput";
 import { ThemeToggle } from "./ThemeToggle";
@@ -20,13 +20,15 @@ type State =
   | { phase: "success"; data: AnalyzeResponse }
   | { phase: "error"; error: AnalyzeError };
 
-export function Analyzer({ demoEnabled }: { demoEnabled: boolean }) {
+export function Analyzer({
+  demoEnabled, initialShare = null, shareMissing = false,
+}: { demoEnabled: boolean; initialShare?: SharePayload | null; shareMissing?: boolean }) {
   const [url, setUrl] = useState("");
   const [rosterText, setRosterText] = useState("");
   const [touchedUrl, setTouchedUrl] = useState(false);
   const [state, setState] = useState<State>({ phase: "idle" });
   const [lastData, setLastData] = useState<AnalyzeResponse | null>(null);
-  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const shareCache = useRef(new Map<string, string>());
   const urlRef = useRef<HTMLInputElement>(null);
   const rosterRef = useRef<HTMLTextAreaElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
@@ -46,12 +48,12 @@ export function Analyzer({ demoEnabled }: { demoEnabled: boolean }) {
   const loading = state.phase === "loading";
   const canAnalyze = link.ok && roster.members.length > 0 && !loading;
 
-  // Opening a shared link (/?b=…&m=…) fills the form and runs the analysis right away.
+  // Opening a shared link (/s/abc12345, or a legacy /?b=…&m=… link) fills the form and runs the analysis.
   const sharedOnce = useRef(false);
   useEffect(() => {
     if (sharedOnce.current) return;
     sharedOnce.current = true;
-    void parseShareQuery(window.location.search).then((p) => {
+    void (initialShare ? Promise.resolve(initialShare) : parseShareQuery(window.location.search)).then((p) => {
       if (!p || p.members.length === 0) return;
       setUrl(p.url);
       setRosterText(p.members.join("\n"));
@@ -60,20 +62,33 @@ export function Analyzer({ demoEnabled }: { demoEnabled: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function updateShareLink(data: AnalyzeResponse) {
-    if (data.mode !== "live") {
-      setShareUrl(null);
-      if (window.location.search) window.history.replaceState(null, "", window.location.pathname);
-      return;
-    }
+  /** Returns a short /s/… link (falls back to a long self-contained link if short links aren't configured). */
+  async function getShareLink(data: AnalyzeResponse): Promise<string | null> {
+    if (data.mode !== "live") return null;
+    const payload = { url: data.source.canonicalUrl, members: data.members.map((m) => m.input) };
+    const key = JSON.stringify(payload);
+    const cached = shareCache.current.get(key);
+    if (cached) return cached;
+    let link: string | null = null;
     try {
-      const q = await buildShareQuery({ url: data.source.canonicalUrl, members: data.members.map((m) => m.input) });
-      const next = `${window.location.origin}${window.location.pathname}?${q}`;
-      window.history.replaceState(null, "", `?${q}`);
-      setShareUrl(next);
+      const res = await fetch("/api/share", { method: "POST", headers: { "Content-Type": "application/json" }, body: key });
+      const body = await res.json().catch(() => null);
+      if (res.ok && typeof body?.path === "string") {
+        link = `${window.location.origin}${body.path}`;
+        window.history.replaceState(null, "", `${body.path}${window.location.hash}`);
+      }
     } catch {
-      setShareUrl(null);
+      /* fall back below */
     }
+    if (!link) {
+      try {
+        link = `${window.location.origin}/?${await buildShareQuery(payload)}`;
+      } catch {
+        return null;
+      }
+    }
+    shareCache.current.set(key, link);
+    return link;
   }
 
   async function run(opts: { refresh?: boolean; demo?: boolean; override?: { url: string; members: string[] } } = {}) {
@@ -89,6 +104,10 @@ export function Analyzer({ demoEnabled }: { demoEnabled: boolean }) {
         ? DEMO_ROSTER
         : roster.members.map((m) => m.input);
     const targetUrl = opts.override?.url ?? url;
+    // A fresh analysis no longer matches a shared link in the address bar.
+    if (!opts.override && !opts.refresh && (window.location.pathname !== "/" || window.location.search)) {
+      window.history.replaceState(null, "", "/");
+    }
     try {
       const res = await fetch("/api/analyze", {
         method: "POST",
@@ -103,7 +122,6 @@ export function Analyzer({ demoEnabled }: { demoEnabled: boolean }) {
       }
       setLastData(body as AnalyzeResponse);
       setState({ phase: "success", data: body as AnalyzeResponse });
-      void updateShareLink(body as AnalyzeResponse);
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
       setState({ phase: "error", error: { code: "internal", error: "Network error — check your connection and try again." } });
@@ -187,6 +205,12 @@ export function Analyzer({ demoEnabled }: { demoEnabled: boolean }) {
       </ol>
 
       <div ref={composerRef} className="scroll-mt-6">
+        {shareMissing && (
+          <div role="status" className="mx-auto mb-4 flex max-w-[760px] items-start gap-2.5 rounded-2xl border border-warn/25 bg-warn-soft px-4 py-3 text-[14px]">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warn" aria-hidden />
+            <p className="text-muted"><b className="font-semibold text-fg">This shared link has expired or doesn’t exist.</b> Paste the battle link and roster to analyze again.</p>
+          </div>
+        )}
         <Card className="mx-auto max-w-[760px] overflow-hidden shadow-float">
           <form
             onSubmit={(e) => {
@@ -286,14 +310,14 @@ export function Analyzer({ demoEnabled }: { demoEnabled: boolean }) {
             onRefresh={state.data.mode === "live" ? () => void run({ refresh: true }) : undefined}
             onEditRoster={editRoster}
             onNewLink={newLink}
-            shareUrl={shareUrl}
+            getShareLink={() => getShareLink(state.data)}
           />
         )}
       </div>
 
       <footer className="mt-24 flex flex-col gap-3 border-t border-line pt-6 text-[12.5px] leading-relaxed text-subtle sm:flex-row sm:items-start sm:justify-between sm:gap-8">
         <p className="max-w-[680px]">
-          Data comes from the official Albion Online game-info API — the same battle data AlbionBB displays. Market prices from the Albion Online Data Project. Not affiliated with Sandbox Interactive or AlbionBB. Rosters are processed in memory and never stored on the server — saved rosters stay in your browser.
+          Data comes from the official Albion Online game-info API — the same battle data AlbionBB displays. Market prices from the Albion Online Data Project. Not affiliated with Sandbox Interactive or AlbionBB. Rosters are processed in memory; saved rosters stay in your browser. Creating a share link stores only the battle link and nicknames so the link can be opened later.
         </p>
         <p className="shrink-0 whitespace-nowrap">
           Made by <span className="font-semibold text-fg">themag1k</span>

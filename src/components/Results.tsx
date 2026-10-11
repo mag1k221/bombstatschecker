@@ -2,10 +2,10 @@
 
 import {
   AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Check, CheckCircle2, Copy, Download, ExternalLink, FlaskConical,
-  Link2, Pencil, RefreshCw, Search, Share2, Swords, Users,
+  ArrowLeft, ArrowRight, BarChart3, Coins, Link2, Loader2, Pencil, RefreshCw, Search, Share2, Swords, Users,
 } from "lucide-react";
 import clsx from "clsx";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AnalyzeResponse } from "@/lib/api-types";
 import type { MemberStat } from "@/lib/stats/compute";
 import { membersToCsv } from "@/lib/stats/csv";
@@ -29,10 +29,12 @@ function duration(a: string | null, b: string | null) {
 }
 
 export function Results({
-  data, onRefresh, onEditRoster, onNewLink, shareUrl,
-}: { data: AnalyzeResponse; onRefresh?: () => void; onEditRoster: () => void; onNewLink: () => void; shareUrl?: string | null }) {
+  data, onRefresh, onEditRoster, onNewLink, getShareLink,
+}: { data: AnalyzeResponse; onRefresh?: () => void; onEditRoster: () => void; onNewLink: () => void; getShareLink?: () => Promise<string | null> }) {
   const partial = data.source.completeness === "partial";
   const regear = useRegear(data);
+  const [view, setView] = useView();
+  const canShare = data.mode === "live" && !!getShareLink;
   return (
     <div className="space-y-6 animate-rise">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -54,8 +56,8 @@ export function Results({
               <RefreshCw className="size-3.5" aria-hidden /> Refresh data
             </Button>
           )}
-          {shareUrl && <ShareLink url={shareUrl} />}
-          <CopyDiscord data={data} regear={regear} shareUrl={shareUrl} />
+          {canShare && <ShareLink getLink={getShareLink!} />}
+          <CopyDiscord data={data} regear={regear} getLink={canShare ? getShareLink : undefined} />
         </div>
       </div>
 
@@ -70,12 +72,33 @@ export function Results({
         </Notice>
       )}
 
-      <Summary data={data} />
-      {data.roleBreakdown.length > 0 && <RoleBreakdown data={data} />}
-      <MemberTable data={data} />
-      {data.squadDeaths.length > 0 && <RegearPanel data={data} regear={regear} />}
-      {data.friendlyFire.length > 0 && <FriendlyFire data={data} />}
-      <SourceInfo data={data} />
+      <ViewTabs view={view} onChange={setView} deaths={data.squadDeaths.length} />
+
+      {view === "regear" ? (
+        <div className="space-y-6 animate-rise">
+          <button onClick={() => setView("stats")} className="inline-flex items-center gap-1.5 text-[13px] font-medium text-muted hover:text-fg">
+            <ArrowLeft className="size-3.5" aria-hidden /> Back to K/D &amp; stats
+          </button>
+          {data.squadDeaths.length > 0 ? (
+            <RegearPanel data={data} regear={regear} />
+          ) : (
+            <Card className="p-10 text-center">
+              <Coins className="mx-auto size-6 text-subtle" aria-hidden />
+              <p className="mt-3 text-[15px] font-medium">No squad deaths — nothing to regear.</p>
+              <p className="mt-1 text-[13.5px] text-muted">Nobody on your roster died in this battle.</p>
+            </Card>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-6 animate-rise">
+          <Summary data={data} />
+          {data.squadDeaths.length > 0 && <RegearTeaser regear={regear} deaths={data.squadDeaths.length} onOpen={() => setView("regear")} />}
+          {data.roleBreakdown.length > 0 && <RoleBreakdown data={data} />}
+          <MemberTable data={data} />
+          {data.friendlyFire.length > 0 && <FriendlyFire data={data} />}
+          <SourceInfo data={data} />
+        </div>
+      )}
     </div>
   );
 }
@@ -99,23 +122,104 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-function ShareLink({ url }: { url: string }) {
-  const [state, setState] = useState<"idle" | "copied" | "error">("idle");
+type View = "stats" | "regear";
+
+/** Results sub-page, kept in the URL hash (#regear) so back/forward and shared links work. */
+function useView(): [View, (v: View) => void] {
+  const [view, setViewState] = useState<View>("stats");
+  useEffect(() => {
+    const sync = () => setViewState(window.location.hash === "#regear" ? "regear" : "stats");
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+  const setView = (v: View) => {
+    if (v === view) return;
+    if (v === "regear") window.location.hash = "regear";
+    else window.history.pushState(null, "", window.location.pathname + window.location.search);
+    setViewState(v);
+    requestAnimationFrame(() => document.getElementById("results-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+  return [view, setView];
+}
+
+function ViewTabs({ view, onChange, deaths }: { view: View; onChange: (v: View) => void; deaths: number }) {
+  const tabs: { id: View; label: string; icon: React.ReactNode; count?: number }[] = [
+    { id: "stats", label: "K/D & stats", icon: <BarChart3 className="size-4" aria-hidden /> },
+    { id: "regear", label: "Regear", icon: <Coins className="size-4" aria-hidden />, count: deaths },
+  ];
+  return (
+    <div id="results-tabs" role="tablist" aria-label="Results pages" className="flex scroll-mt-6 gap-1 rounded-full border border-line bg-surface p-1 shadow-card sm:inline-flex">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          role="tab"
+          aria-selected={view === t.id}
+          onClick={() => onChange(t.id)}
+          className={clsx(
+            "flex flex-1 items-center justify-center gap-2 rounded-full px-4 py-2 text-[14px] font-medium transition-all sm:flex-none sm:px-5",
+            view === t.id ? "bg-accent text-accent-fg shadow-sm" : "text-muted hover:bg-surface-2 hover:text-fg",
+          )}
+        >
+          {t.icon}
+          {t.label}
+          {t.count != null && (
+            <span className={clsx("tnum rounded-full px-1.5 text-[12px]", view === t.id ? "bg-white/20" : "bg-surface-2 text-subtle")}>{t.count}</span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RegearTeaser({ regear, deaths, onOpen }: { regear: RegearState; deaths: number; onOpen: () => void }) {
+  const t = regear.totals;
+  return (
+    <button
+      onClick={onOpen}
+      className="group flex w-full items-center gap-4 rounded-[22px] border border-line bg-surface p-5 text-left shadow-card transition-colors hover:border-line-strong hover:bg-surface-2/40"
+    >
+      <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-accent-soft text-accent">
+        <Coins className="size-5" aria-hidden />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] font-medium text-muted">Regear estimate</span>
+        <span className="tnum mt-0.5 block text-[22px] font-semibold leading-tight tracking-tight">
+          {!regear.enabled ? "See lost gear" : regear.status === "ready" && t ? `${formatCompact(t.total)} silver` : regear.status === "error" ? "Prices unavailable" : "Pricing…"}
+        </span>
+        <span className="block text-[12.5px] text-subtle">
+          {deaths} squad death{deaths === 1 ? "" : "s"}
+          {regear.enabled && ` · ${regear.locationLabel}`}
+        </span>
+      </span>
+      <span className="inline-flex shrink-0 items-center gap-1 text-[13.5px] font-medium text-accent">
+        <span className="hidden sm:inline">Open regear</span> <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
+      </span>
+    </button>
+  );
+}
+
+function ShareLink({ getLink }: { getLink: () => Promise<string | null> }) {
+  const [state, setState] = useState<"idle" | "busy" | "copied" | "error">("idle");
   async function share() {
-    setState((await copyText(url)) ? "copied" : "error");
+    setState("busy");
+    const link = await getLink();
+    setState(link && (await copyText(link)) ? "copied" : "error");
     setTimeout(() => setState("idle"), 2200);
   }
   return (
-    <Button size="sm" onClick={share} title="Copy a link that opens these exact results (battle + roster)" aria-live="polite">
-      {state === "copied" ? <Check className="size-3.5" aria-hidden /> : <Share2 className="size-3.5" aria-hidden />}
+    <Button size="sm" onClick={share} disabled={state === "busy"} title="Copy a short link that opens these results" aria-live="polite">
+      {state === "busy" ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : state === "copied" ? <Check className="size-3.5" aria-hidden /> : <Share2 className="size-3.5" aria-hidden />}
       {state === "copied" ? "Link copied!" : state === "error" ? "Copy failed" : "Share link"}
     </Button>
   );
 }
 
-function CopyDiscord({ data, regear, shareUrl }: { data: AnalyzeResponse; regear: RegearState; shareUrl?: string | null }) {
-  const [state, setState] = useState<"idle" | "copied" | "error">("idle");
+function CopyDiscord({ data, regear, getLink }: { data: AnalyzeResponse; regear: RegearState; getLink?: () => Promise<string | null> }) {
+  const [state, setState] = useState<"idle" | "busy" | "copied" | "error">("idle");
   async function copy() {
+    setState("busy");
+    const shareUrl = getLink ? await getLink().catch(() => null) : null;
     const text = discordSummary(data, {
       regearTotal: regear.totals && regear.status === "ready" ? regear.totals.total : null,
       regearLocation: regear.locationLabel,
@@ -125,7 +229,7 @@ function CopyDiscord({ data, regear, shareUrl }: { data: AnalyzeResponse; regear
     setTimeout(() => setState("idle"), 2200);
   }
   return (
-    <Button size="sm" variant="primary" onClick={copy} title="Copy a summary formatted for Discord (under 2000 characters)" aria-live="polite">
+    <Button size="sm" variant="primary" onClick={copy} disabled={state === "busy"} title="Copy a summary formatted for Discord (under 2000 characters)" aria-live="polite">
       {state === "copied" ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
       {state === "copied" ? "Copied!" : state === "error" ? "Copy failed" : "Copy for Discord"}
     </Button>
