@@ -2,7 +2,7 @@
  * Builds a BattleDataset for a parsed AlbionBB link by querying the official API for every battle in it.
  * This module owns retrieval, caching and completeness assessment — not statistics.
  */
-import type { BattleDataset, BattleMeta, DataIssue, KillEvent, RegionId, WeaponUse } from "@/lib/types";
+import type { BattleDataset, BattleMeta, DataIssue, KillEvent, PlayerCombat, RegionId, WeaponUse } from "@/lib/types";
 import { TtlCache } from "@/lib/server/ttl-cache";
 import { fetchBattleEvents, fetchBattleSummary, mapLimit } from "./albion-api";
 import { HttpClient } from "./http";
@@ -13,6 +13,7 @@ export interface BattleRecord {
   events: KillEvent[];
   playersSeen: string[];
   playerWeapons: Record<string, WeaponUse[]>;
+  playerCombat: Record<string, PlayerCombat>;
   issues: DataIssue[];
   retrievedAt: string;
   notFound: boolean;
@@ -66,6 +67,7 @@ export async function loadBattle(
       events: [],
       playersSeen: [],
       playerWeapons: {},
+      playerCombat: {},
       issues: [{ kind: "battle_failed", battleId, message: `Battle ${battleId} was not found on this server.` }],
       retrievedAt,
       notFound: true,
@@ -104,6 +106,15 @@ export async function loadBattle(
   const seen = new Set<string>(ev.playersSeen);
   if (summary.kind === "ok") for (const n of summary.summary.playerNames) seen.add(n);
 
+  // Kill fame comes from the summary; damage/healing/IP from events.
+  const playerCombat: Record<string, PlayerCombat> = {};
+  for (const [n, c] of Object.entries(ev.playerCombat)) playerCombat[n] = { ...c };
+  if (summary.kind === "ok") {
+    for (const [n, fame] of Object.entries(summary.summary.playerFame)) {
+      playerCombat[n] = { ...(playerCombat[n] ?? { damage: 0, healing: 0, ipSum: 0, ipCount: 0, killFame: null }), killFame: fame };
+    }
+  }
+
   if (nothingRetrieved) {
     issues.push({ kind: "battle_failed", battleId, message: `No data could be retrieved for battle ${battleId}.` });
   }
@@ -123,6 +134,7 @@ export async function loadBattle(
     events: ev.events,
     playersSeen: [...seen],
     playerWeapons: ev.playerWeapons,
+    playerCombat,
     issues,
     retrievedAt,
     notFound: false,
@@ -177,7 +189,19 @@ export function mergeRecords(records: BattleRecord[]): BattleDataset {
   const seen = new Set<string>();
   const issues: DataIssue[] = [];
   const weapons = new Map<string, Map<string, WeaponUse>>();
+  const combat = new Map<string, PlayerCombat>();
   for (const r of records) {
+    for (const [name, c] of Object.entries(r.playerCombat ?? {})) {
+      const cur = combat.get(name);
+      if (!cur) combat.set(name, { ...c });
+      else {
+        cur.damage += c.damage;
+        cur.healing += c.healing;
+        cur.ipSum += c.ipSum;
+        cur.ipCount += c.ipCount;
+        cur.killFame = cur.killFame === null && c.killFame === null ? null : (cur.killFame ?? 0) + (c.killFame ?? 0);
+      }
+    }
     for (const e of r.events) if (!events.has(e.id)) events.set(e.id, e);
     for (const n of r.playersSeen) seen.add(n);
     issues.push(...r.issues);
@@ -199,6 +223,7 @@ export function mergeRecords(records: BattleRecord[]): BattleDataset {
     events: [...events.values()],
     playersSeen: [...seen],
     playerWeapons: Object.fromEntries([...weapons].map(([n, m]) => [n, [...m.values()]])),
+    playerCombat: Object.fromEntries(combat),
     issues,
   };
 }

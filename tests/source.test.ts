@@ -146,7 +146,7 @@ describe("http safety and caching", () => {
   it("dedupes events across merged battles", () => {
     const rec = (id: number, events = [kill(1, "A", "B", id)]): BattleRecord => ({
       meta: { id, startTime: null, endTime: null, reportedKills: 1, retrievedEvents: 1, playerCount: 2, pagesFetched: 1, pagesFailed: 0, status: "complete" },
-      events, playersSeen: ["A", "B"], playerWeapons: {}, issues: [], retrievedAt: "", notFound: false,
+      events, playersSeen: ["A", "B"], playerWeapons: {}, playerCombat: {}, issues: [], retrievedAt: "", notFound: false,
     });
     expect(mergeRecords([rec(1), rec(1)]).events).toHaveLength(1);
   });

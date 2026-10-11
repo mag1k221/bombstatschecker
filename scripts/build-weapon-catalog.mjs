@@ -1,5 +1,6 @@
 /**
- * Regenerates src/lib/weapons/catalog.generated.json from the community-maintained
+ * Regenerates src/lib/weapons/catalog.generated.json (weapons: name + line) and
+ * src/lib/weapons/items.generated.json (all wearable gear + mounts: name) from the community-maintained
  * Albion Online game data dumps (https://github.com/ao-data/ao-bin-dumps).
  * Usage: node scripts/build-weapon-catalog.mjs [itemsXmlPath itemsTxtPath]
  * Without arguments, the files are downloaded from GitHub.
@@ -38,3 +39,27 @@ for (const [, , attrs] of xml.matchAll(tagRe)) {
 const sorted = Object.fromEntries(Object.entries(catalog).sort(([a], [b]) => a.localeCompare(b)));
 await writeFile(new URL("../src/lib/weapons/catalog.generated.json", import.meta.url), JSON.stringify(sorted, null, 1) + "\n");
 console.log(`Wrote ${Object.keys(sorted).length} weapons.`);
+
+// All gear that can appear in a victim's equipment: weapons, off-hands, armor, capes, bags, mounts.
+const gear = {};
+const gearRe = /<(weapon|transformationweapon|equipmentitem|mount)\s([^>]*)>/g;
+for (const [, tag, attrs] of xml.matchAll(gearRe)) {
+  const unique = attr(attrs, "uniquename");
+  const m = unique && /^T(\d)_(.+)$/.exec(unique);
+  if (!m) continue;
+  if (tag === "mount") {
+    // Mount names differ per tier/variant (e.g. T5 Swiftclaw vs T8 Rageclaw), so key them exactly.
+    for (const id of [unique, ...[1, 2, 3, 4].map((e) => `${unique}@${e}`)]) {
+      const n = names.get(id);
+      if (n) gear[id] = n.replace(TIER_PREFIX, "");
+    }
+    continue;
+  }
+  const base = m[2];
+  if (gear[base] && m[1] !== "4") continue;
+  const name = (names.get(unique) ?? "").replace(TIER_PREFIX, "");
+  if (name) gear[base] = name;
+}
+const gearSorted = Object.fromEntries(Object.entries(gear).sort(([a], [b]) => a.localeCompare(b)));
+await writeFile(new URL("../src/lib/weapons/items.generated.json", import.meta.url), JSON.stringify(gearSorted) + "\n");
+console.log(`Wrote ${Object.keys(gearSorted).length} gear items.`);

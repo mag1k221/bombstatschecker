@@ -1,4 +1,5 @@
 import catalog from "./catalog.generated.json";
+import gearNames from "./items.generated.json";
 
 export interface WeaponInfo {
   /** Full item type as seen in the data, e.g. "T6_2H_KNUCKLES_SET2@3" (used for the icon). */
@@ -43,4 +44,14 @@ export function weaponInfo(type: string): WeaponInfo | null {
     tier: Number(m[1]),
     enchant: m[3] ? Number(m[3]) : 0,
   };
+}
+
+const GEAR = gearNames as Record<string, string>;
+
+/** Display name for any gear item type (weapons, armor, capes, bags, mounts). */
+export function itemName(type: string): string {
+  const m = TYPE_RE.exec(type);
+  if (!m) return type;
+  const base = m[2];
+  return GEAR[type] ?? GEAR[`T${m[1]}_${base}`] ?? CATALOG[base]?.name ?? GEAR[base] ?? humanize(base);
 }

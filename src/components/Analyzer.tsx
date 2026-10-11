@@ -2,12 +2,13 @@
 
 import { AlertTriangle, ArrowRight, Check, Link2, Loader2, Sparkles } from "lucide-react";
 import clsx from "clsx";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AnalyzeError, AnalyzeResponse } from "@/lib/api-types";
 import { REGIONS } from "@/lib/source/regions";
 import { DEMO_ROSTER } from "@/lib/source/demo";
 import { LinkError, parseAlbionBBLink } from "@/lib/source/url";
 import { buildRoster } from "@/lib/stats/roster";
+import { buildShareQuery, parseShareQuery } from "@/lib/share";
 import { Results, ResultsSkeleton } from "./Results";
 import { RosterInput } from "./RosterInput";
 import { ThemeToggle } from "./ThemeToggle";
@@ -25,6 +26,7 @@ export function Analyzer({ demoEnabled }: { demoEnabled: boolean }) {
   const [touchedUrl, setTouchedUrl] = useState(false);
   const [state, setState] = useState<State>({ phase: "idle" });
   const [lastData, setLastData] = useState<AnalyzeResponse | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
   const urlRef = useRef<HTMLInputElement>(null);
   const rosterRef = useRef<HTMLTextAreaElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
@@ -44,19 +46,54 @@ export function Analyzer({ demoEnabled }: { demoEnabled: boolean }) {
   const loading = state.phase === "loading";
   const canAnalyze = link.ok && roster.members.length > 0 && !loading;
 
-  async function run(opts: { refresh?: boolean; demo?: boolean } = {}) {
+  // Opening a shared link (/?b=…&m=…) fills the form and runs the analysis right away.
+  const sharedOnce = useRef(false);
+  useEffect(() => {
+    if (sharedOnce.current) return;
+    sharedOnce.current = true;
+    void parseShareQuery(window.location.search).then((p) => {
+      if (!p || p.members.length === 0) return;
+      setUrl(p.url);
+      setRosterText(p.members.join("\n"));
+      void run({ override: { url: p.url, members: p.members } });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function updateShareLink(data: AnalyzeResponse) {
+    if (data.mode !== "live") {
+      setShareUrl(null);
+      if (window.location.search) window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
+    try {
+      const q = await buildShareQuery({ url: data.source.canonicalUrl, members: data.members.map((m) => m.input) });
+      const next = `${window.location.origin}${window.location.pathname}?${q}`;
+      window.history.replaceState(null, "", `?${q}`);
+      setShareUrl(next);
+    } catch {
+      setShareUrl(null);
+    }
+  }
+
+  async function run(opts: { refresh?: boolean; demo?: boolean; override?: { url: string; members: string[] } } = {}) {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     setState({ phase: "loading", refresh: !!opts.refresh });
     requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
 
-    const members = opts.demo && roster.members.length === 0 ? DEMO_ROSTER : roster.members.map((m) => m.input);
+    const members = opts.override
+      ? buildRoster(opts.override.members).members.map((m) => m.input)
+      : opts.demo && roster.members.length === 0
+        ? DEMO_ROSTER
+        : roster.members.map((m) => m.input);
+    const targetUrl = opts.override?.url ?? url;
     try {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(opts.demo ? { demo: true, members } : { url, members, refresh: !!opts.refresh }),
+        body: JSON.stringify(opts.demo ? { demo: true, members } : { url: targetUrl, members, refresh: !!opts.refresh }),
         signal: controller.signal,
       });
       const body = await res.json().catch(() => null);
@@ -66,6 +103,7 @@ export function Analyzer({ demoEnabled }: { demoEnabled: boolean }) {
       }
       setLastData(body as AnalyzeResponse);
       setState({ phase: "success", data: body as AnalyzeResponse });
+      void updateShareLink(body as AnalyzeResponse);
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
       setState({ phase: "error", error: { code: "internal", error: "Network error — check your connection and try again." } });
@@ -248,12 +286,18 @@ export function Analyzer({ demoEnabled }: { demoEnabled: boolean }) {
             onRefresh={state.data.mode === "live" ? () => void run({ refresh: true }) : undefined}
             onEditRoster={editRoster}
             onNewLink={newLink}
+            shareUrl={shareUrl}
           />
         )}
       </div>
 
-      <footer className="mt-24 border-t border-line pt-6 text-[12.5px] leading-relaxed text-subtle">
-        Data comes from the official Albion Online game-info API — the same battle data AlbionBB displays. Not affiliated with Sandbox Interactive or AlbionBB. Rosters are processed in memory and never stored.
+      <footer className="mt-24 flex flex-col gap-3 border-t border-line pt-6 text-[12.5px] leading-relaxed text-subtle sm:flex-row sm:items-start sm:justify-between sm:gap-8">
+        <p className="max-w-[680px]">
+          Data comes from the official Albion Online game-info API — the same battle data AlbionBB displays. Market prices from the Albion Online Data Project. Not affiliated with Sandbox Interactive or AlbionBB. Rosters are processed in memory and never stored on the server — saved rosters stay in your browser.
+        </p>
+        <p className="shrink-0 whitespace-nowrap">
+          Made by <span className="font-semibold text-fg">themag1k</span>
+        </p>
       </footer>
     </div>
   );

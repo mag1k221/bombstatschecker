@@ -19,6 +19,28 @@ export interface WeaponUse {
   lastSeen: string | null;
 }
 
+export type GearSlot = "MainHand" | "OffHand" | "Head" | "Armor" | "Shoes" | "Cape" | "Bag" | "Mount";
+export const GEAR_SLOTS: readonly GearSlot[] = ["MainHand", "OffHand", "Head", "Armor", "Shoes", "Cape", "Bag", "Mount"];
+
+export interface GearItem {
+  slot: GearSlot;
+  type: string;
+  /** 1 Normal … 5 Masterpiece (0/unknown is normalized to 1). */
+  quality: number;
+}
+
+/** Per-player combat contribution aggregated over a battle's kill events. */
+export interface PlayerCombat {
+  /** Sum of DamageDone over kills the player participated in. */
+  damage: number;
+  /** Sum of SupportHealingDone over kills the player participated in. */
+  healing: number;
+  ipSum: number;
+  ipCount: number;
+  /** Kill fame from the battle summary (null when the summary was unavailable). */
+  killFame: number | null;
+}
+
 /** One kill event, normalized from the source. `id` is the stable source event identifier. */
 export interface KillEvent {
   id: number;
@@ -28,6 +50,9 @@ export interface KillEvent {
   victim: PlayerRef;
   /** Players credited with participation (damage/healing). Assists — never counted as kills. */
   participants: string[];
+  /** Equipment the victim lost (consumables excluded). */
+  victimGear?: GearItem[];
+  victimDeathFame?: number | null;
 }
 
 export type IssueKind =
@@ -66,5 +91,6 @@ export interface BattleDataset {
   playersSeen: string[];
   /** Main-hand weapons observed per player name (source capitalization). */
   playerWeapons: Record<string, WeaponUse[]>;
+  playerCombat: Record<string, PlayerCombat>;
   issues: DataIssue[];
 }

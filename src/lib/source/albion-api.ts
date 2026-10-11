@@ -7,7 +7,7 @@
  * Constraints observed: limit must be ≤ 51, offset must be ≤ 1000 (HTTP 400 otherwise),
  * and an unknown battle returns 200 with [] for events.
  */
-import type { DataIssue, KillEvent, PlayerRef, RegionId, WeaponUse } from "@/lib/types";
+import { GEAR_SLOTS, type DataIssue, type GearItem, type KillEvent, type PlayerCombat, type PlayerRef, type RegionId, type WeaponUse } from "@/lib/types";
 import { isValidItemType } from "@/lib/weapons/catalog";
 import { REGIONS } from "./regions";
 import type { HttpClient } from "./http";
@@ -23,6 +23,8 @@ export interface BattleSummary {
   endTime: string | null;
   totalKills: number | null;
   playerNames: string[];
+  /** Kill fame per player name, from the summary. */
+  playerFame: Record<string, number>;
 }
 
 export type SummaryResult =
@@ -40,10 +42,28 @@ export interface EventsResult {
   abortedOnFailures: boolean;
   malformed: number;
   playerWeapons: Record<string, WeaponUse[]>;
+  /** Damage/healing/IP per player (killFame is filled in from the summary later). */
+  playerCombat: Record<string, PlayerCombat>;
   issues: DataIssue[];
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v : null);
+const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+
+function gearOf(r: Record<string, unknown>): GearItem[] {
+  const eq = r.Equipment;
+  if (!eq || typeof eq !== "object") return [];
+  const out: GearItem[] = [];
+  for (const slot of GEAR_SLOTS) {
+    const it = (eq as Record<string, unknown>)[slot];
+    if (!it || typeof it !== "object") continue;
+    const t = (it as Record<string, unknown>).Type;
+    if (!isValidItemType(t)) continue;
+    const q = (it as Record<string, unknown>).Quality;
+    out.push({ slot, type: t, quality: typeof q === "number" && q >= 1 && q <= 5 ? Math.round(q) : 1 });
+  }
+  return out;
+}
 
 /** Main-hand item type from an Equipment object, validated against the item-ID format. */
 function mainHandOf(r: Record<string, unknown>): string | null {
@@ -66,6 +86,9 @@ function toPlayer(raw: unknown): PlayerRef | null {
 interface Seen {
   name: string;
   weapon: string | null;
+  damage: number;
+  healing: number;
+  ip: number;
 }
 
 function playersOf(list: unknown): Seen[] {
@@ -75,13 +98,15 @@ function playersOf(list: unknown): Seen[] {
     if (!p || typeof p !== "object") continue;
     const r = p as Record<string, unknown>;
     const n = str(r.Name);
-    if (n) out.push({ name: n, weapon: mainHandOf(r) });
+    if (n) out.push({ name: n, weapon: mainHandOf(r), damage: num(r.DamageDone), healing: num(r.SupportHealingDone), ip: num(r.AverageItemPower) });
   }
   return out;
 }
 
 /** Normalizes one raw event. Returns null if required fields are missing. */
-export function normalizeEvent(raw: unknown): (KillEvent & { groupMembers: Seen[]; participantGear: Seen[] }) | null {
+export function normalizeEvent(
+  raw: unknown,
+): (KillEvent & { groupMembers: Seen[]; participantGear: Seen[]; killerIp: number; victimIp: number }) | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const id = r.EventId;
@@ -100,6 +125,10 @@ export function normalizeEvent(raw: unknown): (KillEvent & { groupMembers: Seen[
     participants: participantGear.map((p) => p.name),
     participantGear,
     groupMembers: playersOf(r.GroupMembers),
+    victimGear: gearOf(r.Victim as Record<string, unknown>),
+    victimDeathFame: typeof (r.Victim as Record<string, unknown>).DeathFame === "number" ? ((r.Victim as Record<string, unknown>).DeathFame as number) : null,
+    killerIp: num((r.Killer as Record<string, unknown>).AverageItemPower),
+    victimIp: num((r.Victim as Record<string, unknown>).AverageItemPower),
   };
 }
 
@@ -120,9 +149,15 @@ export async function fetchBattleSummary(
     return { kind: "error", error: "Battle summary was malformed" };
   }
   const players = d.players && typeof d.players === "object" ? Object.values(d.players as object) : [];
-  const playerNames = players
-    .map((p) => (p && typeof p === "object" ? str((p as Record<string, unknown>).name) : null))
-    .filter((n): n is string => n !== null);
+  const playerNames: string[] = [];
+  const playerFame: Record<string, number> = {};
+  for (const p of players) {
+    if (!p || typeof p !== "object") continue;
+    const n = str((p as Record<string, unknown>).name);
+    if (!n) continue;
+    playerNames.push(n);
+    playerFame[n] = num((p as Record<string, unknown>).killFame);
+  }
   return {
     kind: "ok",
     summary: {
@@ -131,6 +166,7 @@ export async function fetchBattleSummary(
       endTime: str(d.endTime),
       totalKills: typeof d.totalKills === "number" ? d.totalKills : null,
       playerNames,
+      playerFame,
     },
   };
 }
@@ -166,6 +202,36 @@ export async function fetchBattleEvents(
   let malformed = 0;
   let foreign = 0;
   const weapons = new Map<string, Map<string, WeaponUse>>();
+  const combat = new Map<string, PlayerCombat>();
+  const combatOf = (name: string) => {
+    let c = combat.get(name);
+    if (!c) combat.set(name, (c = { damage: 0, healing: 0, ipSum: 0, ipCount: 0, killFame: null }));
+    return c;
+  };
+
+  /** Damage/healing once per participant per distinct event; IP once per player per event (killer/victim first). */
+  const recordCombat = (event: KillEvent, participantGear: Seen[], killerIp: number, victimIp: number) => {
+    const counted = new Set<string>();
+    for (const p of participantGear) {
+      if (counted.has(p.name)) continue;
+      counted.add(p.name);
+      const c = combatOf(p.name);
+      c.damage += p.damage;
+      c.healing += p.healing;
+    }
+    const ipSeen = new Map<string, number>();
+    const consider = (name: string, ip: number) => {
+      if (ip > 0 && !ipSeen.has(name)) ipSeen.set(name, ip);
+    };
+    consider(event.killer.name, killerIp);
+    consider(event.victim.name, victimIp);
+    for (const p of participantGear) consider(p.name, p.ip);
+    for (const [name, ip] of ipSeen) {
+      const c = combatOf(name);
+      c.ipSum += ip;
+      c.ipCount++;
+    }
+  };
 
   /** Records each player's main hand once per distinct event (killer/victim take precedence). */
   const recordWeapons = (event: KillEvent, participantGear: Seen[], groupMembers: Seen[]) => {
@@ -222,11 +288,12 @@ export async function fetchBattleEvents(
         foreign++;
         continue;
       }
-      const { groupMembers, participantGear, ...event } = ev;
+      const { groupMembers, participantGear, killerIp, victimIp, ...event } = ev;
       for (const n of [event.killer.name, event.victim.name, ...event.participants, ...groupMembers.map((g) => g.name)]) seen.add(n);
       if (!byId.has(event.id)) {
         byId.set(event.id, event);
         recordWeapons(event, participantGear, groupMembers);
+        recordCombat(event, participantGear, killerIp, victimIp);
       }
     }
     if (page.length < PAGE_SIZE) return "stop"; // reached the end
@@ -287,6 +354,7 @@ export async function fetchBattleEvents(
     abortedOnFailures,
     malformed,
     playerWeapons: Object.fromEntries([...weapons].map(([n, m]) => [n, [...m.values()]])),
+    playerCombat: Object.fromEntries(combat),
     issues,
   };
 }

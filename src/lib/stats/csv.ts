@@ -9,7 +9,7 @@ export function csvCell(value: string | number): string {
 }
 
 export function membersToCsv(members: readonly MemberStat[]): string {
-  const header = ["Nickname", "Status", "Role (inferred)", "Weapon", "Kills", "Deaths", "K/D", "Friendly kills", "Friendly deaths", "Data complete"];
+  const header = ["Nickname", "Status", "Role (inferred)", "Weapon", "Kills", "Deaths", "K/D", "Damage", "Healing", "Avg IP", "Kill fame", "Friendly kills", "Friendly deaths", "Data complete"];
   const rows = members.map((m) => {
     const found = m.status === "matched";
     return [
@@ -20,6 +20,10 @@ export function membersToCsv(members: readonly MemberStat[]): string {
       found ? m.kills : "",
       found ? m.deaths : "",
       m.kdDisplay,
+      found ? Math.round(m.damage) : "",
+      found ? Math.round(m.healing) : "",
+      found && m.avgIp != null ? Math.round(m.avgIp) : "",
+      found && m.killFame != null ? m.killFame : "",
       found ? m.friendlyKills : "",
       found ? m.friendlyDeaths : "",
       m.incomplete ? "No" : "Yes",

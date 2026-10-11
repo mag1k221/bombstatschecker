@@ -1,19 +1,22 @@
 "use client";
 
 import {
-  AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, Download, ExternalLink, FlaskConical,
-  Link2, Pencil, RefreshCw, Search, Swords, Users,
+  AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Check, CheckCircle2, Copy, Download, ExternalLink, FlaskConical,
+  Link2, Pencil, RefreshCw, Search, Share2, Swords, Users,
 } from "lucide-react";
 import clsx from "clsx";
 import { useMemo, useState } from "react";
 import type { AnalyzeResponse } from "@/lib/api-types";
 import type { MemberStat } from "@/lib/stats/compute";
 import { membersToCsv } from "@/lib/stats/csv";
+import { discordSummary } from "@/lib/stats/discord";
+import { formatCompact } from "@/lib/stats/format";
+import { RegearPanel, useRegear, type RegearState } from "./Regear";
 import { ROLE_LABELS, type Role } from "@/lib/weapons/roles";
 import { Badge, Button, Card, Dot } from "./ui";
 import { RoleBadge, RoleIcon, WeaponIcon, weaponLabel } from "./Weapon";
 
-type SortKey = "name" | "kills" | "deaths" | "kd";
+type SortKey = "name" | "kills" | "deaths" | "kd" | "damage" | "healing" | "ip" | "fame";
 type Filter = "all" | "matched" | "not_found" | "friendly";
 
 const fmtDateTime = (iso: string | null) =>
@@ -26,9 +29,10 @@ function duration(a: string | null, b: string | null) {
 }
 
 export function Results({
-  data, onRefresh, onEditRoster, onNewLink,
-}: { data: AnalyzeResponse; onRefresh?: () => void; onEditRoster: () => void; onNewLink: () => void }) {
+  data, onRefresh, onEditRoster, onNewLink, shareUrl,
+}: { data: AnalyzeResponse; onRefresh?: () => void; onEditRoster: () => void; onNewLink: () => void; shareUrl?: string | null }) {
   const partial = data.source.completeness === "partial";
+  const regear = useRegear(data);
   return (
     <div className="space-y-6 animate-rise">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -50,6 +54,8 @@ export function Results({
               <RefreshCw className="size-3.5" aria-hidden /> Refresh data
             </Button>
           )}
+          {shareUrl && <ShareLink url={shareUrl} />}
+          <CopyDiscord data={data} regear={regear} shareUrl={shareUrl} />
         </div>
       </div>
 
@@ -67,9 +73,62 @@ export function Results({
       <Summary data={data} />
       {data.roleBreakdown.length > 0 && <RoleBreakdown data={data} />}
       <MemberTable data={data} />
+      {data.squadDeaths.length > 0 && <RegearPanel data={data} regear={regear} />}
       {data.friendlyFire.length > 0 && <FriendlyFire data={data} />}
       <SourceInfo data={data} />
     </div>
+  );
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // Fallback for browsers that block the async clipboard API.
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  }
+}
+
+function ShareLink({ url }: { url: string }) {
+  const [state, setState] = useState<"idle" | "copied" | "error">("idle");
+  async function share() {
+    setState((await copyText(url)) ? "copied" : "error");
+    setTimeout(() => setState("idle"), 2200);
+  }
+  return (
+    <Button size="sm" onClick={share} title="Copy a link that opens these exact results (battle + roster)" aria-live="polite">
+      {state === "copied" ? <Check className="size-3.5" aria-hidden /> : <Share2 className="size-3.5" aria-hidden />}
+      {state === "copied" ? "Link copied!" : state === "error" ? "Copy failed" : "Share link"}
+    </Button>
+  );
+}
+
+function CopyDiscord({ data, regear, shareUrl }: { data: AnalyzeResponse; regear: RegearState; shareUrl?: string | null }) {
+  const [state, setState] = useState<"idle" | "copied" | "error">("idle");
+  async function copy() {
+    const text = discordSummary(data, {
+      regearTotal: regear.totals && regear.status === "ready" ? regear.totals.total : null,
+      regearLocation: regear.locationLabel,
+      shareUrl,
+    });
+    setState((await copyText(text)) ? "copied" : "error");
+    setTimeout(() => setState("idle"), 2200);
+  }
+  return (
+    <Button size="sm" variant="primary" onClick={copy} title="Copy a summary formatted for Discord (under 2000 characters)" aria-live="polite">
+      {state === "copied" ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+      {state === "copied" ? "Copied!" : state === "error" ? "Copy failed" : "Copy for Discord"}
+    </Button>
   );
 }
 
@@ -195,6 +254,10 @@ function MemberTable({ data }: { data: AnalyzeResponse }) {
       if (sort.key === "name") c = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
       else if (sort.key === "kills") c = a.kills - b.kills;
       else if (sort.key === "deaths") c = a.deaths - b.deaths;
+      else if (sort.key === "damage") c = a.damage - b.damage;
+      else if (sort.key === "healing") c = a.healing - b.healing;
+      else if (sort.key === "ip") c = (a.avgIp ?? -1) - (b.avgIp ?? -1);
+      else if (sort.key === "fame") c = (a.killFame ?? -1) - (b.killFame ?? -1);
       else c = kdSort(a) - kdSort(b) || a.kills - b.kills;
       return c * dir || a.name.localeCompare(b.name);
     });
@@ -290,12 +353,15 @@ function MemberTable({ data }: { data: AnalyzeResponse }) {
               const [key, dir] = e.target.value.split(":") as [SortKey, "asc" | "desc"];
               setSort({ key, dir });
             }}
-            className="h-9 rounded-full border border-line-strong bg-surface px-3 text-[13px] text-fg focus:border-accent focus:outline-none sm:hidden"
+            className="h-9 rounded-full border border-line-strong bg-surface px-3 text-[13px] text-fg focus:border-accent focus:outline-none md:hidden"
           >
             <option value="kills:desc">Most kills</option>
             <option value="deaths:desc">Most deaths</option>
             <option value="kd:desc">Best K/D</option>
             <option value="kd:asc">Worst K/D</option>
+            <option value="damage:desc">Most damage</option>
+            <option value="healing:desc">Most healing</option>
+            <option value="ip:desc">Highest IP</option>
             <option value="name:asc">Name A–Z</option>
           </select>
           <Button size="sm" onClick={exportCsv} className="h-9">
@@ -314,7 +380,10 @@ function MemberTable({ data }: { data: AnalyzeResponse }) {
               <Th label="Kills" short="K" k="kills" sort={sort} onSort={toggleSort} numeric />
               <Th label="Deaths" short="D" k="deaths" sort={sort} onSort={toggleSort} numeric />
               <Th label="K/D" k="kd" sort={sort} onSort={toggleSort} numeric />
-              <th scope="col" className="hidden px-4 py-3 pr-5 font-medium sm:table-cell">Status</th>
+              <Th label="Damage" k="damage" sort={sort} onSort={toggleSort} numeric className="hidden md:table-cell" />
+              <Th label="Healing" k="healing" sort={sort} onSort={toggleSort} numeric className="hidden md:table-cell" />
+              <Th label="Avg IP" k="ip" sort={sort} onSort={toggleSort} numeric className="hidden xl:table-cell" />
+              <Th label="Kill fame" k="fame" sort={sort} onSort={toggleSort} numeric className="hidden pr-5 xl:table-cell" />
             </tr>
           </thead>
           <tbody>
@@ -343,12 +412,31 @@ function MemberTable({ data }: { data: AnalyzeResponse }) {
                         {m.weapon && <span className="hidden truncate text-subtle sm:inline">· {m.weapon.name}</span>}
                       </p>
                     )}
-                    <div className="mt-1.5 flex items-center gap-1.5 sm:hidden">
-                      <Badge tone={st.tone} title={st.title} className="!text-[11px]">
-                        <Dot tone={st.tone} /> {st.label}
-                      </Badge>
-                      {found && m.incomplete && <AlertTriangle className="size-3.5 text-warn" aria-label="May be incomplete" />}
-                    </div>
+                    {found && (
+                      <p className="tnum mt-0.5 text-[12px] text-subtle md:hidden">
+                        {[
+                          m.damage > 0 && `${formatCompact(m.damage)} dmg`,
+                          m.healing > 0 && `${formatCompact(m.healing)} heal`,
+                          m.avgIp != null && `${Math.round(m.avgIp)} IP`,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    )}
+                    {(st.label !== "Matched" || (found && m.incomplete)) && (
+                      <div className="mt-1.5 flex items-center gap-1.5">
+                        {st.label !== "Matched" && (
+                          <Badge tone={st.tone} title={st.title} className="!text-[11px]">
+                            <Dot tone={st.tone} /> {st.label}
+                          </Badge>
+                        )}
+                        {found && m.incomplete && (
+                          <span title="Source data is partial — this member’s counts may be undercounted." className="text-warn">
+                            <AlertTriangle className="size-3.5" aria-label="May be incomplete" />
+                          </span>
+                        )}
+                      </div>
+                    )}
                     </div>
                     </div>
                   </td>
@@ -370,24 +458,16 @@ function MemberTable({ data }: { data: AnalyzeResponse }) {
                   <td className={clsx("tnum px-1.5 py-3.5 pr-3 text-right text-[14.5px] font-semibold sm:px-4", !found && "text-subtle")}>
                     {m.kdDisplay === "∞" ? <span className="text-[19px] leading-none" aria-label="infinite">∞</span> : m.kdDisplay}
                   </td>
-                  <td className="hidden px-4 py-3.5 pr-5 sm:table-cell">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Badge tone={st.tone} title={st.title}>
-                        <Dot tone={st.tone} /> {st.label}
-                      </Badge>
-                      {found && m.incomplete && (
-                        <span title="Source data is partial — this member’s counts may be undercounted." className="text-warn">
-                          <AlertTriangle className="size-3.5" aria-label="May be incomplete" />
-                        </span>
-                      )}
-                    </span>
-                  </td>
+                  <Num value={found ? m.damage : null} compact className="hidden md:table-cell" />
+                  <Num value={found ? m.healing : null} compact className="hidden md:table-cell" />
+                  <Num value={found && m.avgIp != null ? Math.round(m.avgIp) : null} className="hidden xl:table-cell" />
+                  <Num value={found ? m.killFame : null} compact className="hidden pr-5 xl:table-cell" />
                 </tr>
               );
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-5 py-12 text-center text-[14px] text-muted">
+                <td colSpan={9} className="px-5 py-12 text-center text-[14px] text-muted">
                   No members match {query ? <>“{query}”</> : "this filter"}.
                 </td>
               </tr>
@@ -429,10 +509,13 @@ function Th({ label, short, k, sort, onSort, numeric, className }: { label: stri
   );
 }
 
-function Num({ value }: { value: number | null }) {
+function Num({ value, compact, className }: { value: number | null; compact?: boolean; className?: string }) {
   return (
-    <td className={clsx("tnum px-1.5 py-3.5 text-right text-[14.5px] sm:px-4", value === null ? "text-subtle" : value === 0 ? "text-muted" : "font-medium")}>
-      {value === null ? "—" : value}
+    <td
+      className={clsx("tnum px-1.5 py-3.5 text-right text-[14.5px] sm:px-4", value === null ? "text-subtle" : value === 0 ? "text-muted" : "font-medium", className)}
+      title={compact && value != null ? value.toLocaleString() : undefined}
+    >
+      {value === null ? "—" : compact ? formatCompact(value) : value}
     </td>
   );
 }
@@ -549,7 +632,7 @@ function SourceInfo({ data }: { data: AnalyzeResponse }) {
       <p className="mt-5 border-t border-line pt-4 text-[12.5px] leading-relaxed text-subtle">
         {isDemo
           ? "Demo data is fictional and bundled with the app."
-          : "Scope: only the kill events of the battle(s) in this link, retrieved from the official Albion Online game-info API (the data AlbionBB itself displays). A kill is the killing blow; assists are not counted. A member is “matched” if their exact nickname appears anywhere in the battle data. Weapon = the main hand a member was seen with most often in this battle’s kill events; role is inferred from that weapon (the game doesn’t report roles). Weapon icons come from the official Albion Online render service."}
+          : "Scope: only the kill events of the battle(s) in this link, retrieved from the official Albion Online game-info API (the data AlbionBB itself displays). A kill is the killing blow; assists are not counted. A member is “matched” if their exact nickname appears anywhere in the battle data. Weapon = the main hand a member was seen with most often in this battle’s kill events; role is inferred from that weapon (the game doesn’t report roles). Damage and healing are summed over the kill events a member took part in (as reported by the game), so they cover kills rather than the whole fight; Avg IP is averaged over those events. Weapon icons come from the official Albion Online render service."}
       </p>
     </Card>
   );

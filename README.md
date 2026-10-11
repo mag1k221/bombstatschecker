@@ -44,6 +44,14 @@ Supported links: `https://<host>/battles/<id>` and `https://<host>/battles/multi
 - **Role (inferred, not reported by the game):** Tank, Healer, Support, Melee DPS or Ranged DPS, decided by the weapon line plus a few per-weapon exceptions. Edit `src/lib/weapons/roles.ts` to match your guild’s comp. A member with no observed gear shows as *Unknown*. This happens when the member only appears in the battle summary and never in a kill event.
 - The **By role** card shows members, kills, deaths and K/D for each role. As everywhere else, K/D is a ratio of sums.
 
+## Combat stats, regear, Discord, saved rosters
+
+- **Damage / Healing / Avg IP / Kill fame:** damage and healing come from the `Participants` of each kill event (`DamageDone`, `SupportHealingDone`), summed once per distinct event. They only cover damage/healing that contributed to a kill, not the whole fight. The killing blow alone is not reported as damage. Avg IP is the mean of the item power reported for the member across those events. Kill fame comes from the battle summary.
+- **Regear calculator:** for every squad death, the victim’s gear (main hand, off hand, head, armor, shoes, cape, bag, mount; potions and food excluded) is priced with the lowest recent sell order from the [Albion Online Data Project](https://www.albion-online-data.com/) for the same server (`west.` / `europe.` / `east.albion-online-data.com`). You can pick one city or the cheapest of all royal cities plus Brecilien, and choose whether to include mounts. Prices older than 7 days or equal to 0 are ignored. If the exact quality has no price, the nearest quality is used and marked with an amber tag. Items without a price are flagged and not counted. The server proxies these lookups through `POST /api/prices`, spaces requests 400 ms apart, keeps URLs under 3,800 characters, and caches rows for 10 minutes. The Data Project asks for ≤180 requests/min, and its prices are crowdsourced, so treat totals as estimates. Pricing is disabled in demo mode.
+- **Copy for Discord:** copies a Markdown summary (K/D, kills, deaths, regear total, a code-block table of members). It is trimmed to fit Discord’s 2,000-character message limit.
+- **Shareable links:** after a live analysis the address bar becomes a link like `/?b=eu.441346892&m=Name1~Name2~Name3`. The **Share link** button copies it, and **Copy for Discord** includes it when it's ≤1,000 characters. Opening the link fills the form and re-runs the analysis with fresh data, so nothing is stored on a server. Rosters longer than 1,500 characters are deflate-compressed into `z=` (base64url). Example: 300 names come out as an ~900-character link. Demo results aren't shareable.
+- **Saved rosters:** stored only in the browser’s `localStorage` (`boomsquad.rosters.v1`, up to 40 rosters, each up to 500 members). Click a chip to load a roster. Saving with an existing name replaces that roster.
+
 ## Architecture
 
 ```
@@ -92,6 +100,7 @@ Environment variables (all optional, none secret):
 | `ALBION_API_MIN_INTERVAL_MS` | `200` | Minimum spacing between upstream requests |
 | `BATTLE_CACHE_TTL_SECONDS` | `600` | Cache lifetime for complete battles |
 | `ANALYZE_RATE_LIMIT_PER_MINUTE` | `12` | Per-IP analyses per minute |
+| `PRICES_RATE_LIMIT_PER_MINUTE` | `20` | Per-IP market price lookups per minute |
 | `NEXT_PUBLIC_ENABLE_DEMO` | `true` | Set `false` to remove demo mode (build-time) |
 
 ## Deploy
@@ -106,4 +115,6 @@ Environment variables (all optional, none secret):
 2. **Summary vs events gaps**: the official API sometimes returns slightly fewer events than its own `totalKills` (e.g. battle 441346892: 569 reported, 566 retrievable). The app reports this as partial instead of hiding it.
 3. AlbionBB-only features (its own merged/filtered views, custom battle groupings beyond `multi?ids=`) are not reproduced. Only battle IDs from the link are used.
 4. Results reflect what the official API returns at retrieval time. A battle that is still in progress can change, so use **Refresh data**.
-5. Not affiliated with Sandbox Interactive or AlbionBB.
+5. Damage/healing only cover kill events (see above), so support players who never touched a kill show 0.
+6. Market prices are crowdsourced and may be missing or stale; regear totals are estimates.
+7. Not affiliated with Sandbox Interactive or AlbionBB.

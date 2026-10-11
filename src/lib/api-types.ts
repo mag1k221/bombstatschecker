@@ -1,6 +1,6 @@
 /** Wire format for POST /api/analyze — shared by server and client. */
 import type { BattleMeta, DataIssue, RegionId } from "@/lib/types";
-import type { FriendlyFireEvent, MemberStat, RoleStat, SquadSummary } from "@/lib/stats/compute";
+import type { FriendlyFireEvent, MemberStat, RoleStat, SquadDeath, SquadSummary } from "@/lib/stats/compute";
 
 export interface AnalyzeRequest {
   url?: string;
@@ -33,7 +33,33 @@ export interface AnalyzeResponse {
   summary: SquadSummary;
   members: MemberStat[];
   roleBreakdown: RoleStat[];
+  squadDeaths: SquadDeath[];
   friendlyFire: FriendlyFireEvent[];
+}
+
+export interface PriceQuote {
+  /** Silver per item. */
+  price: number;
+  /** Quality the price was found for (may differ from requested when exact is unavailable). */
+  quality: number;
+  city: string;
+  /** ISO timestamp of the price observation. */
+  observedAt: string;
+}
+
+export interface PricesRequest {
+  region: RegionId;
+  location: string;
+  items: { type: string; quality: number }[];
+}
+
+export interface PricesResponse {
+  region: RegionId;
+  location: string;
+  /** Keyed by `${type}#${quality}`; missing key = no recent price. */
+  quotes: Record<string, PriceQuote>;
+  retrievedAt: string;
+  failedChunks: number;
 }
 
 export interface AnalyzeError {

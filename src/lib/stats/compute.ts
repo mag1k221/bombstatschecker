@@ -3,6 +3,8 @@ import type { BattleDataset } from "@/lib/types";
 import { formatKD, kdValue } from "./kd";
 import { normalizeName, type RosterMember } from "./roster";
 import { resolveLoadout } from "@/lib/weapons/loadout";
+import { itemName } from "@/lib/weapons/catalog";
+import type { PlayerCombat } from "@/lib/types";
 import { ROLE_ORDER, type Role } from "@/lib/weapons/roles";
 
 export interface MemberWeapon {
@@ -11,6 +13,26 @@ export interface MemberWeapon {
   name: string;
   tier: number | null;
   enchant: number;
+}
+
+export interface LostItem {
+  slot: string;
+  type: string;
+  quality: number;
+  name: string;
+}
+
+export interface SquadDeath {
+  eventId: number;
+  battleId: number;
+  timestamp: string | null;
+  /** Roster key of the victim. */
+  memberKey: string;
+  victim: string;
+  killer: string;
+  killerGuild: string | null;
+  deathFame: number | null;
+  items: LostItem[];
 }
 
 export interface RoleStat {
@@ -45,6 +67,14 @@ export interface MemberStat {
   role: Role;
   /** Other weapons seen for this member in the battle. */
   otherWeapons: string[];
+  /** Damage dealt across kills the member took part in. */
+  damage: number;
+  /** Healing done across kills the member took part in. */
+  healing: number;
+  /** Average item power over events where it was reported; null when never reported. */
+  avgIp: number | null;
+  /** Kill fame from the battle summary; null when unavailable. */
+  killFame: number | null;
 }
 
 export interface FriendlyFireEvent {
@@ -70,13 +100,14 @@ export interface SquadStats {
   summary: SquadSummary;
   friendlyFire: FriendlyFireEvent[];
   roleBreakdown: RoleStat[];
+  squadDeaths: SquadDeath[];
   eventsConsidered: number;
   duplicateEventsIgnored: number;
 }
 
 export function computeSquadStats(
   roster: readonly RosterMember[],
-  dataset: Pick<BattleDataset, "events" | "playersSeen"> & Partial<Pick<BattleDataset, "playerWeapons">>,
+  dataset: Pick<BattleDataset, "events" | "playersSeen"> & Partial<Pick<BattleDataset, "playerWeapons" | "playerCombat">>,
   opts: { partial: boolean },
 ): SquadStats {
   const rosterKeys = new Set(roster.map((m) => m.key));
@@ -93,6 +124,7 @@ export function computeSquadStats(
   const fKills = new Map<string, number>();
   const fDeaths = new Map<string, number>();
   const friendlyFire: FriendlyFireEvent[] = [];
+  const squadDeaths: SquadDeath[] = [];
   const inc = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
 
   // Deduplicate by stable event ID so the same event is never counted twice.
@@ -111,7 +143,20 @@ export function computeSquadStats(
     const killerIn = rosterKeys.has(kk);
     const victimIn = rosterKeys.has(vk);
     if (killerIn) inc(kills, kk); // killer credit only — participants/assists are never kills
-    if (victimIn) inc(deaths, vk);
+    if (victimIn) {
+      inc(deaths, vk);
+      squadDeaths.push({
+        eventId: e.id,
+        battleId: e.battleId,
+        timestamp: e.timestamp,
+        memberKey: vk,
+        victim: e.victim.name,
+        killer: e.killer.name,
+        killerGuild: e.killer.guildName,
+        deathFame: e.victimDeathFame ?? null,
+        items: (e.victimGear ?? []).map((g) => ({ slot: g.slot, type: g.type, quality: g.quality, name: itemName(g.type) })),
+      });
+    }
     if (killerIn && victimIn) {
       inc(fKills, kk);
       inc(fDeaths, vk);
@@ -132,11 +177,26 @@ export function computeSquadStats(
     weaponsByKey.set(k, [...(weaponsByKey.get(k) ?? []), ...uses]);
   }
 
+  const combatByKey = new Map<string, PlayerCombat>();
+  for (const [name, c] of Object.entries(dataset.playerCombat ?? {})) {
+    const k = normalizeName(name);
+    const cur = combatByKey.get(k);
+    if (!cur) combatByKey.set(k, { ...c });
+    else {
+      cur.damage += c.damage;
+      cur.healing += c.healing;
+      cur.ipSum += c.ipSum;
+      cur.ipCount += c.ipCount;
+      cur.killFame = cur.killFame === null && c.killFame === null ? null : (cur.killFame ?? 0) + (c.killFame ?? 0);
+    }
+  }
+
   const members: MemberStat[] = roster.map((m) => {
     const found = displayByKey.has(m.key);
     const k = kills.get(m.key) ?? 0;
     const d = deaths.get(m.key) ?? 0;
     const loadout = resolveLoadout(found ? weaponsByKey.get(m.key) : undefined);
+    const c = found ? combatByKey.get(m.key) : undefined;
     return {
       key: m.key,
       name: displayByKey.get(m.key) ?? m.input,
@@ -154,6 +214,10 @@ export function computeSquadStats(
         : null,
       role: found ? loadout.role : "unknown",
       otherWeapons: loadout.others,
+      damage: Math.round(c?.damage ?? 0),
+      healing: Math.round(c?.healing ?? 0),
+      avgIp: c && c.ipCount > 0 ? Math.round(c.ipSum / c.ipCount) : null,
+      killFame: c?.killFame ?? null,
     };
   });
 
@@ -179,6 +243,7 @@ export function computeSquadStats(
       const rd = ms.reduce((a, m) => a + m.deaths, 0);
       return { role, members: ms.length, kills: rk, deaths: rd, kd: kdValue(rk, rd), kdDisplay: formatKD(rk, rd) };
     }).filter((r) => r.members > 0),
+    squadDeaths: squadDeaths.sort((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? "")),
     friendlyFire: friendlyFire.sort((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? "")),
     eventsConsidered: seenIds.size,
     duplicateEventsIgnored: duplicates,

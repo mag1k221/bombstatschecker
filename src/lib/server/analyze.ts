@@ -97,6 +97,7 @@ export async function analyze(input: unknown, loadOpts: LoadOptions = {}, demoEn
       summary: stats.summary,
       members: stats.members,
       roleBreakdown: stats.roleBreakdown,
+      squadDeaths: stats.squadDeaths,
       friendlyFire: stats.friendlyFire,
     },
   };

@@ -9,8 +9,19 @@ export const DEMO_BATTLE_ID = 1000000001;
 
 const p = (name: string, guild = "Demo Boomsquad") => ({ id: null, name, guildName: guild, allianceName: "DEMO" });
 
+const DEMO_GEAR: KillEvent["victimGear"] = [
+  { slot: "MainHand", type: "T8_2H_HOLYSTAFF_HELL@1", quality: 2 },
+  { slot: "Head", type: "T8_HEAD_CLOTH_SET2@1", quality: 2 },
+  { slot: "Armor", type: "T8_ARMOR_CLOTH_SET2@1", quality: 3 },
+  { slot: "Shoes", type: "T8_SHOES_CLOTH_SET2@1", quality: 2 },
+  { slot: "Cape", type: "T8_CAPEITEM_FW_THETFORD@1", quality: 1 },
+  { slot: "Mount", type: "T5_MOUNT_ARMORED_HORSE", quality: 1 },
+];
+
 function ev(id: number, minute: number, killer: string, victim: string, kg?: string, vg?: string, participants: string[] = []): KillEvent {
   return {
+    victimGear: DEMO_GEAR,
+    victimDeathFame: 150000,
     id,
     battleId: DEMO_BATTLE_ID,
     timestamp: new Date(Date.UTC(2026, 0, 1, 20, minute, 0)).toISOString(),
@@ -49,6 +60,14 @@ export function demoDataset(): BattleDataset {
       },
     ],
     events,
+    playerCombat: {
+      Ashwick: { damage: 48210, healing: 0, ipSum: 1612 * 4, ipCount: 4, killFame: 1400000 },
+      Brannoc: { damage: 9120, healing: 0, ipSum: 1540 * 3, ipCount: 3, killFame: 300000 },
+      Cinderfall: { damage: 36500, healing: 0, ipSum: 1580 * 3, ipCount: 3, killFame: 820000 },
+      Dovrel: { damage: 0, healing: 102300, ipSum: 1495 * 2, ipCount: 2, killFame: 210000 },
+      Emberly: { damage: 2100, healing: 0, ipSum: 1470, ipCount: 1, killFame: 90000 },
+      Fennick: { damage: 0, healing: 0, ipSum: 0, ipCount: 0, killFame: 0 },
+    },
     playerWeapons: {
       Ashwick: [{ type: "T8_2H_DUALSCIMITAR_UNDEAD@1", count: 4, lastSeen: "2026-01-01T20:06:00.000Z" }],
       Brannoc: [{ type: "T8_MAIN_MACE@2", count: 3, lastSeen: "2026-01-01T20:07:00.000Z" }],

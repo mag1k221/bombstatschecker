@@ -13,6 +13,8 @@ export interface RegionConfig {
   label: string;
   albionbbHosts: readonly string[];
   apiBase: string;
+  /** Albion Online Data Project (crowdsourced market prices) for the same server. */
+  marketBase: string;
 }
 
 export const REGIONS: Record<RegionId, RegionConfig> = {
@@ -21,23 +23,26 @@ export const REGIONS: Record<RegionId, RegionConfig> = {
     label: "Americas (West)",
     albionbbHosts: ["albionbb.com", "www.albionbb.com"],
     apiBase: "https://gameinfo.albiononline.com/api/gameinfo",
+    marketBase: "https://west.albion-online-data.com/api/v2/stats/prices",
   },
   europe: {
     id: "europe",
     label: "Europe",
     albionbbHosts: ["europe.albionbb.com"],
     apiBase: "https://gameinfo-ams.albiononline.com/api/gameinfo",
+    marketBase: "https://europe.albion-online-data.com/api/v2/stats/prices",
   },
   asia: {
     id: "asia",
     label: "Asia (East)",
     albionbbHosts: ["east.albionbb.com"],
     apiBase: "https://gameinfo-sgp.albiononline.com/api/gameinfo",
+    marketBase: "https://east.albion-online-data.com/api/v2/stats/prices",
   },
 };
 
 export const ALLOWED_UPSTREAM_HOSTS: ReadonlySet<string> = new Set(
-  Object.values(REGIONS).map((r) => new URL(r.apiBase).host),
+  Object.values(REGIONS).flatMap((r) => [new URL(r.apiBase).host, new URL(r.marketBase).host]),
 );
 
 export function regionForHost(host: string): RegionConfig | null {

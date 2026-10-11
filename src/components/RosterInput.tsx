@@ -3,6 +3,7 @@
 import { FileText, Upload, X } from "lucide-react";
 import clsx from "clsx";
 import { forwardRef, useId, useRef, useState, type DragEvent } from "react";
+import { SavedRosters } from "./SavedRosters";
 import { extractNames, formatFromFileName, looksBinary, MAX_FILE_BYTES, MAX_ROSTER_SIZE, type RosterResult } from "@/lib/stats/roster";
 
 interface Props {
@@ -165,6 +166,15 @@ export const RosterInput = forwardRef<HTMLTextAreaElement, Props>(function Roste
           <p className="text-subtle">One nickname per line. Matching is exact and case-insensitive — no fuzzy matching.</p>
         )}
       </div>
+      <SavedRosters
+        text={value}
+        count={unique}
+        onLoad={(t) => {
+          onChange(t);
+          setFileNote(null);
+          setMode("paste");
+        }}
+      />
     </div>
   );
 });
