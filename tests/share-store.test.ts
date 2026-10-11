@@ -49,3 +49,15 @@ describe("short share links", () => {
     expect(await loadShare("../../x")).toBeNull();
   });
 });
+
+describe("prefixed Vercel variables", () => {
+  it("detects bombstatshecker_KV_REST_API_URL / _TOKEN", () => {
+    vi.stubEnv("KV_REST_API_URL", "");
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
+    vi.stubEnv("bombstatshecker_KV_REST_API_URL", "https://x.upstash.io");
+    vi.stubEnv("bombstatshecker_KV_REST_API_READ_ONLY_TOKEN", "ro");
+    expect(shareStoreEnabled()).toBe(false);
+    vi.stubEnv("bombstatshecker_KV_REST_API_TOKEN", "t");
+    expect(shareStoreEnabled()).toBe(true);
+  });
+});

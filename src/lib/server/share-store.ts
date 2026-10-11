@@ -12,9 +12,30 @@ const ID_RE = /^[A-Za-z0-9]{8}$/;
 const B62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const PREFIX = "boomsquad:share:";
 
+/**
+ * Finds the Upstash REST credentials. Vercel may add a custom prefix
+ * (e.g. "myproject_KV_REST_API_URL"), so any matching URL/TOKEN pair with the same prefix is accepted.
+ */
+function findCredentials(env: NodeJS.ProcessEnv = process.env): { url?: string; token?: string } {
+  const pairs: [string, string][] = [
+    ["KV_REST_API_URL", "KV_REST_API_TOKEN"],
+    ["UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"],
+  ];
+  for (const [u, t] of pairs) if (env[u] && env[t]) return { url: env[u], token: env[t] };
+  for (const key of Object.keys(env).sort()) {
+    for (const [u, t] of pairs) {
+      if (key.endsWith(`_${u}`)) {
+        const prefix = key.slice(0, -u.length);
+        const token = env[prefix + t];
+        if (env[key] && token) return { url: env[key], token };
+      }
+    }
+  }
+  return {};
+}
+
 function config() {
-  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+  const { url, token } = findCredentials();
   if (!url || !token || !(/^https:\/\//.test(url) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(url))) return null;
   return { url: url.replace(/\/+$/, ""), token };
 }
